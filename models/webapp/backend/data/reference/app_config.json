@@ -1,0 +1,24 @@
+{
+  "our_team_code": "MEX",
+  "home_stadium_id": "harp-helu",
+  "paper_url": "",
+  "sea_level_reference": {"altitude_m": 0, "temp_c": 25},
+  "altitude_category_to_m": {
+    "_note": "Only used when a pitch has no stadium. Replace the keys with the exact altitude_category values in the Diablos dataset.",
+    "high": 2200,
+    "mid_high": 1800,
+    "mid": 1500,
+    "low": 600,
+    "sea_level": 10
+  },
+  "min_pitches_leaderboard": 100,
+  "min_pitches_pitch_type": 20,
+  "reliever_max_pitches_per_app": 35,
+  "bullpen": {
+    "rest_if_pitched_both_last_2_days": true,
+    "rest_if_pitches_last_day_over": 30,
+    "rest_if_pitches_last_3_days_over": 55,
+    "limited_if_pitched_yesterday": true,
+    "limited_if_pitches_last_3_days_over": 30
+  }
+}

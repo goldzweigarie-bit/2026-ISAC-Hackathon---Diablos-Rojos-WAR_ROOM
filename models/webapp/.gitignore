@@ -1,0 +1,6 @@
+node_modules/
+backend/data/raw/
+backend/data/processed/
+backend/data/rosters/
+# the schedule is public data, keep it despite the root *.csv rule
+!backend/data/schedule/*.csv
