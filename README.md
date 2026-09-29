@@ -8,12 +8,12 @@ el estadio de mayor altitud de la LMB.
 
 ## Equipo
 
-| Rol | Nombre | GitHub |
-|---|---|---|
-| Data Science Lead | _pendiente_ | @ |
-| ML Engineer | _pendiente_ | @ |
-| Física / Ingeniería | _pendiente_ | @ |
-| Dashboard / Negocio | _pendiente_ | @ |
+| Nombre | GitHub |
+|---|---|
+|Fernando Arellano | @FerArGo56 |
+| Arié Goldzweig | @goldzweigarie-bit |
+| Mikel Loret| @loretmikel |
+| Meyer Hemilson| @Meyer03/github |
 
 ## Los 5 Entregables y dónde vive cada uno
 
