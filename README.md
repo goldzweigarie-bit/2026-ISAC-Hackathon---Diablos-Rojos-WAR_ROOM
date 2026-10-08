@@ -7,7 +7,7 @@ Sistema de evaluación pitch-by-pitch que estima la calidad esperada de cada lan
 ## Equipo
 
 |Nombre | GitHub |
-|---|---|---|
+|---|---|
 | Fernando Arellano | @FerArGo56 |
 | Arié Goldzweig | @goldzweigarie-bit |
 | Mikel Loret | @loretmikel |
