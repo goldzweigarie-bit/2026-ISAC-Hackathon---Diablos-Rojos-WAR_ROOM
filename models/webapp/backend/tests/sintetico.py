@@ -1,13 +1,12 @@
-"""Generate a synthetic, physically consistent LMB pitch dataset shaped like the final Diablos data.
+"""SOLO PARA PRUEBAS: genera pitcheos sintéticos con la misma forma que entrega el API 1.
+
+La app nunca usa estos datos: las pruebas (test_app.py) los pasan al traductor en lugar del API 1.
+
+Generate a synthetic, physically consistent LMB pitch dataset shaped like the final Diablos data.
 
 It mimics the columns of stuff_plus_data_dictionary.csv plus the fields the final (non-anonymized) data should
 add: Date, Stadium, PitcherTeam, BatterTeam and Pitcher. Accelerations scale with each park's air density, so the
 altitude analysis in the app recovers a real (synthetic) effect. Diablos 2026 games follow the real schedule.
-
-    python scripts/generate_synthetic.py            # writes data/raw/synthetic_*.parquet and data/rosters/2026.csv
-    python scripts/ingest.py                        # then build the processed tables
-
-Delete data/raw/synthetic_*.parquet once the real files are in data/raw/.
 """
 from __future__ import annotations
 
@@ -251,37 +250,24 @@ Y_PLATE = 17 / 12
 
 
 def altitude_bucket(alt):
+    """Las mismas categorías que el dataset real."""
     if alt >= 2000:
-        return "high"
-    if alt >= 1700:
-        return "mid_high"
-    if alt >= 1300:
-        return "mid"
-    if alt >= 400:
-        return "low"
-    return "sea_level"
+        return "Extreme Altitude"
+    if alt >= 1000:
+        return "Medium Altitude"
+    return "No Altitude"
 
 
-def main():
+def generar(seasons=(2025, 2026)) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(pitcheos con columnas del API 1, roster 2026). Determinista: misma semilla, mismos datos."""
     stadiums = json.loads((DATA / "reference" / "stadiums.json").read_text(encoding="utf-8"))["stadiums"]
     mex = pd.read_csv(DATA / "schedule" / "2026.csv")
     pitchers = make_pitchers(stadiums)
     arsenals = make_arsenals(pitchers)
     releases = release_profile(pitchers)
-    out = DATA / "raw"
-    out.mkdir(parents=True, exist_ok=True)
-    for season in (2025, 2026):
-        cal = build_calendar(season, stadiums, mex)
-        df = simulate_season(season, pitchers, arsenals, releases, stadiums, cal)
-        df.to_parquet(out / f"synthetic_{season}.parquet", index=False)
-        print(season, len(df), "pitches,", df.game_anon_id.nunique(), "games")
+    frames = [simulate_season(s, pitchers, arsenals, releases, stadiums, build_calendar(s, stadiums, mex))
+              for s in seasons]
     roster = pitchers.rename(columns={"team_2026": "team_code"})[["pitcher_id", "team_code", "role"]].copy()
     roster.insert(1, "name", roster.pitcher_id)
     roster["season"] = 2026
-    (DATA / "rosters").mkdir(exist_ok=True)
-    roster.to_csv(DATA / "rosters" / "2026.csv", index=False)
-    print("roster rows", len(roster), "free agents", (roster.team_code == "FA").sum())
-
-
-if __name__ == "__main__":
-    main()
+    return pd.concat(frames, ignore_index=True), roster

@@ -1,7 +1,15 @@
-"""In-memory data store: loads the processed tables and precomputes projected Stuff+ at every park."""
+"""Memoria del traductor: al arrancar pide los datos a los dos APIs, arma las tablas y precalcula todo.
+
+    API 1 (pitcheos) ─→ preparar.py ─→ arsenal / pitchers ─┐
+                                                           ├─→ proj: cada pitcheo en cada uno de los 20 parques
+    API 2 (Stuff+ por nivel de altitud) ───────────────────┘        (física de physics.py + Stuff+ del modelo)
+
+Si el API 2 todavía no tiene la tabla de Stuff+, se usa el Stuff+ provisional de model.py y la web app lo avisa.
+"""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import unicodedata
 import re
@@ -10,11 +18,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .model import FEATURE_COLUMNS, load_model, stuff_plus
+from .fuentes import Fuentes, cargar_env
+from .model import FEATURE_COLUMNS, PlaceholderStuffModel, stuff_plus
 from .physics import air_density, at_density, flight, movement_inches
+from .preparar import preparar
 
-DATA_DIR = Path(os.environ.get("STUFFPLUS_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+cargar_env(BACKEND_DIR / ".env")
+DATA_DIR = Path(os.environ.get("STUFFPLUS_DATA_DIR", BACKEND_DIR / "data"))
 SEA_LEVEL_ID = "sea-level"
+log = logging.getLogger("traductor")
 
 
 def norm_text(s) -> str:
@@ -27,28 +40,38 @@ def _read_json(path: Path, default=None):
 
 
 class Store:
-    def __init__(self, data_dir: Path = DATA_DIR):
+    def __init__(self, data_dir: Path = DATA_DIR, fuentes: Fuentes | None = None):
         self.data_dir = Path(data_dir)
+        self.fuentes = fuentes or Fuentes(cache_dir=self.data_dir / "cache")
         self.load()
 
     # ------------------------------------------------------------------------------------------ loading
     def load(self) -> None:
         ref = self.data_dir / "reference"
-        proc = self.data_dir / "processed"
-        if not (proc / "arsenal.parquet").exists():
-            raise RuntimeError("No processed data. Run scripts/ingest.py first (see README).")
         self.config = _read_json(ref / "app_config.json")
         self.stadiums = _read_json(ref / "stadiums.json")["stadiums"]
         self.stadium_by_id = {s["id"]: s for s in self.stadiums}
         self.stadium_by_team = {s["team_code"]: s for s in self.stadiums}
-        self.meta = _read_json(proc / "ingest_meta.json", {})
-        self.altitude_study = _read_json(proc / "altitude_study.json", {})
-        self.validation = _read_json(proc / "validation_metrics.json")
-        self.arsenal = pd.read_parquet(proc / "arsenal.parquet")
-        self.pitchers = pd.read_parquet(proc / "pitchers.parquet")
-        self.appearances = pd.read_parquet(proc / "appearances.parquet") if (proc / "appearances.parquet").exists() else None
-        self.team_hand = pd.read_parquet(proc / "team_handedness.parquet") if (proc / "team_handedness.parquet").exists() else None
-        self.rosters = pd.read_parquet(proc / "rosters.parquet") if (proc / "rosters.parquet").exists() else None
+
+        # 1) API 1: pitcheos → tablas físicas
+        t = preparar(self.fuentes.pitcheos(), self.data_dir)
+        for aviso in t["log"]:
+            log.warning(aviso)
+        self.meta = t["meta"]
+        self.altitude_study = t["altitude_study"]
+        self.arsenal = t["arsenal"]
+        self.pitchers = t["pitchers"]
+        self.appearances = t["appearances"]
+        self.team_hand = t["team_hand"]
+        self.rosters = t["rosters"]
+
+        # 2) API 2: Stuff+ del modelo y métricas de validación (si ya existen)
+        cfg = self.config["api2"]
+        self.stuff_table = self.fuentes.tabla_api2(cfg["tabla_stuff"])
+        self.validation = self._validation(self.fuentes.tabla_api2(cfg["tabla_validacion"]))
+        self.api2_meta = self.fuentes.metadatos_api2()
+        self.model = self._model_info()
+        self.levels_interpolated: list[str] = []
         self.schedules = {}
         for f in sorted((self.data_dir / "schedule").glob("*.csv")):
             sched = pd.read_csv(f, dtype={"stadium_id": str})
@@ -57,7 +80,6 @@ class Store:
             sched["stadium_id"] = [s if isinstance(s, str) and s else self.stadium_by_team[h]["id"]
                                    for s, h in zip(sched["stadium_id"].fillna(""), sched["home_code"])]
             self.schedules[int(f.stem)] = sched
-        self.model = load_model(proc)
         self.rho_ref = float(self.meta.get("rho_ref") or air_density(0, 25))
         self.seasons = sorted(int(s) for s in self.arsenal["season"].unique())
         self.current_season = max(self.seasons)
@@ -105,19 +127,89 @@ class Store:
             feats["stadium_id"] = sid
             frames.append(feats)
         proj = pd.concat(frames, ignore_index=True)
-        proj["raw"] = self.model.predict(proj[FEATURE_COLUMNS])
-        groups = (proj["season"].astype(str) + "|" + proj["stadium_id"]).to_numpy()
-        proj["stuff_plus"] = stuff_plus(proj["raw"].to_numpy(), proj["n"].to_numpy(dtype=float), groups)
+        if self.stuff_table is not None:
+            proj["stuff_plus"] = self._stuff_from_api2(proj)
+        else:
+            proj["raw"] = PlaceholderStuffModel().predict(proj[FEATURE_COLUMNS])
+            groups = (proj["season"].astype(str) + "|" + proj["stadium_id"]).to_numpy()
+            proj["stuff_plus"] = stuff_plus(proj["raw"].to_numpy(), proj["n"].to_numpy(dtype=float), groups)
         parks_only = proj[proj.stadium_id != SEA_LEVEL_ID]
         neutral = parks_only.groupby(["season", "pitcher_id", "pitch_type"])["stuff_plus"].mean().rename("stuff_neutral")
         proj = proj.merge(neutral.reset_index(), on=["season", "pitcher_id", "pitch_type"], how="left")
         self.proj = proj
-        w = proj.assign(wsp=proj["stuff_plus"] * proj["n"], wn=proj["n"])
+        w = proj.dropna(subset=["stuff_plus"]).assign(wsp=proj["stuff_plus"] * proj["n"], wn=proj["n"])
         pp = w.groupby(["season", "stadium_id", "pitcher_id"]).agg(wsp=("wsp", "sum"), n=("wn", "sum")).reset_index()
         pp["stuff_plus"] = pp["wsp"] / pp["n"]
         pp = pp.drop(columns="wsp")
         pn = pp[pp.stadium_id != SEA_LEVEL_ID].groupby(["season", "pitcher_id"])["stuff_plus"].mean().rename("stuff_neutral")
         self.pitcher_park = pp.merge(pn.reset_index(), on=["season", "pitcher_id"], how="left")
+
+    # ------------------------------------------------------------------------------------- Stuff+ (API 2)
+    def altitude_level(self, stadium_id: str) -> str:
+        """Nivel de altitud de un parque, con los mismos nombres que altitude_category del dataset."""
+        if stadium_id == SEA_LEVEL_ID:
+            return "No Altitude"
+        s = self.stadium_by_id[stadium_id]
+        if s.get("altitude_category"):                       # un parque puede fijar su nivel a mano
+            return s["altitude_category"]
+        for nivel in sorted(self.config["niveles_altitud"], key=lambda n: -n["desde_m"]):
+            if s["altitude_m"] >= nivel["desde_m"]:
+                return nivel["nivel"]
+        return "No Altitude"
+
+    def _stuff_from_api2(self, proj: pd.DataFrame) -> np.ndarray:
+        """Stuff+ de cada pitcher × tipo en cada parque = la columna del nivel de altitud de ese parque.
+
+        Si la tabla no trae la columna de un nivel (p. ej. todavía no hay stuff_plus_media), ese nivel se
+        interpola entre nivel del mar y CDMX según la densidad del aire del parque."""
+        cfg = self.config["api2"]["columnas"]
+        st = self.stuff_table.rename(columns={cfg["pitcher"]: "pitcher_id", cfg["temporada"]: "season",
+                                              cfg["tipo"]: "pitch_type"})
+        st["pitcher_id"] = st["pitcher_id"].astype(str)
+        st["season"] = pd.to_numeric(st["season"], errors="coerce")
+        st["pitch_type"] = st["pitch_type"].astype(str).replace({"Sweeper": "Slider"})
+        cols = {nivel: c for nivel, c in cfg["stuff_por_nivel"].items() if c in st.columns}
+        if "No Altitude" not in cols:
+            raise RuntimeError(f"La tabla de Stuff+ del API 2 no trae {cfg['stuff_por_nivel']['No Altitude']}. "
+                               f"Columnas recibidas: {list(self.stuff_table.columns)}")
+        st = st.groupby(["season", "pitcher_id", "pitch_type"])[list(cols.values())].mean()
+        key = pd.MultiIndex.from_frame(proj[["season", "pitcher_id", "pitch_type"]])
+        vals = {nivel: st[c].reindex(key).to_numpy() for nivel, c in cols.items()}
+        out = np.full(len(proj), np.nan)
+        rho_cdmx = self.park_rho(self.config["home_stadium_id"])
+        self.levels_interpolated = []
+        for sid in proj["stadium_id"].unique():
+            m = (proj["stadium_id"] == sid).to_numpy()
+            nivel = self.altitude_level(sid)
+            if nivel in vals:
+                out[m] = vals[nivel][m]
+            elif "Extreme Altitude" in vals:                 # interpolar por densidad
+                w = (self.rho_ref - self.park_rho(sid)) / (self.rho_ref - rho_cdmx)
+                out[m] = (1 - w) * vals["No Altitude"][m] + w * vals["Extreme Altitude"][m]
+                if nivel not in self.levels_interpolated:
+                    self.levels_interpolated.append(nivel)
+            else:
+                out[m] = vals["No Altitude"][m]
+        return out
+
+    def _validation(self, tabla: pd.DataFrame | None):
+        """Tabla 'validacion' del API 2 (columnas: nombre, valor y opcionalmente split, tipo) → página Metodología."""
+        if tabla is None or not {"nombre", "valor"} <= set(tabla.columns):
+            return None
+        tipo = tabla["tipo"] if "tipo" in tabla else pd.Series("metrica", index=tabla.index)
+        metrics = [{"name": r.nombre, "value": r.valor, "split": getattr(r, "split", None)}
+                   for r in tabla[tipo != "submodelo"].itertuples()]
+        subs = [{"name": r.nombre, "target": getattr(r, "objetivo", ""), "metric": getattr(r, "metrica", ""),
+                 "value": r.valor} for r in tabla[tipo == "submodelo"].itertuples()]
+        return {"metrics": metrics, "submodels": subs, "notes": "Métricas subidas por el modelo al API 2."}
+
+    def _model_info(self) -> dict:
+        """Qué Stuff+ está sirviendo la app: el del modelo (API 2) o el provisional."""
+        if self.stuff_table is None:
+            return {"name": "placeholder", "source": "provisional"}
+        m = self.api2_meta.get(self.config["api2"]["tabla_stuff"], {})
+        version = m.get("version") or "sin versión"
+        return {"name": f"{m.get('modelo', 'stuff_plus')} {version}", "source": "api2", "uploaded": m.get("subido")}
 
     def _build_universe(self) -> None:
         """Latest season per pitcher plus current status (team code or 'FA')."""
@@ -128,6 +220,8 @@ class Store:
             rmap = dict(zip(r.pitcher_id.astype(str), r.team_code))
             status = pd.Series([rmap.get(pid, s) for pid, s in zip(p.pitcher_id, status)], index=p.index)
         p["status"] = status.fillna("FA")
+        if not self.meta.get("capabilities", {}).get("has_teams") and (self.rosters is None or not len(self.rosters)):
+            p["status"] = "?"          # datos anonimizados: no se sabe en qué equipo está nadie
         self.universe = p.set_index("pitcher_id")
 
     # ------------------------------------------------------------------------------------------- lookups

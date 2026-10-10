@@ -35,7 +35,7 @@ export function SearchBox({ pitchersOnly, onPickPitcher, placeholder, autoFocus 
     if (kind === "p") (onPickPitcher ? onPickPitcher(id) : navigate(`/lanzador/${id}`));
     else navigate(`/estadio/${id}`);
   };
-  const statusLabel = (s: string) => (s === "FA" ? t("freeAgent") : s);
+  const statusLabel = (s: string) => (s === "FA" ? t("freeAgent") : s === "?" ? t("teamUnknown") : s);
 
   return (
     <div className="search" ref={boxRef}>

@@ -1,4 +1,8 @@
-"""FastAPI app: JSON API under /api, and the built frontend (frontend/dist) served at / when present."""
+"""El traductor: recibe las 12 preguntas del frontend (/api/...) y las contesta con datos del API 1 y del API 2.
+
+También sirve el frontend ya compilado (frontend/dist) en /, así que para una demo basta con prender este servidor:
+    python3 -m uvicorn app.main:app --port 8002
+"""
 from __future__ import annotations
 
 import os
@@ -13,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from . import bullpen, services
 from .store import Store
 
-app = FastAPI(title="Diablos Stuff+ API", version="1.0")
+app = FastAPI(title="Traductor Stuff+ Diablos (web app)", version="2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 store = Store()
 
@@ -34,14 +38,15 @@ def _stadium(sid: str) -> str:
 
 @app.get("/api/meta")
 def meta():
-    model_name = getattr(store.model, "name", "trained")
     return {
         "our_team_code": store.config["our_team_code"], "our_team_name": store.team_name(store.config["our_team_code"]),
         "home_stadium_id": store.config["home_stadium_id"], "seasons": store.seasons,
         "schedule_seasons": sorted(store.schedules), "current_season": store.current_season,
         "paper_url": os.environ.get("PAPER_URL") or store.config.get("paper_url") or None,
-        "model": model_name, "synthetic": bool(store.meta.get("synthetic")),
+        "model": store.model["name"], "synthetic": False,
         "capabilities": store.meta.get("capabilities", {}),
+        "has_rosters": store.rosters is not None and len(store.rosters) > 0,
+        "sources": {**store.fuentes.estado, "stuff_plus": store.model["source"]},
     }
 
 
@@ -110,7 +115,9 @@ def free_agents(status: str = "all", role: str | None = None, throws: str | None
 @app.get("/api/methodology")
 def methodology():
     return {
-        "model": getattr(store.model, "name", "trained"),
+        "model": store.model["name"], "model_info": store.model,
+        "altitude_levels": {s["id"]: store.altitude_level(s["id"]) for s in store.stadiums},
+        "levels_interpolated": store.levels_interpolated,
         "validation": store.validation, "altitude_study": store.altitude_study,
         "paper_url": os.environ.get("PAPER_URL") or store.config.get("paper_url") or None,
         "data": {k: store.meta.get(k) for k in ("seasons", "rows", "capabilities", "synthetic", "source_files")},
@@ -120,8 +127,9 @@ def methodology():
 
 @app.post("/api/admin/reload")
 def reload_data():
+    """Vuelve a pedir todo a los APIs (p. ej. después de que un modelo subió una versión nueva)."""
     store.load()
-    return {"ok": True, "seasons": store.seasons, "schedule_seasons": sorted(store.schedules)}
+    return {"ok": True, "seasons": store.seasons, "model": store.model, "sources": store.fuentes.estado}
 
 
 # ------------------------------------------------------------------------------ built frontend (optional)
