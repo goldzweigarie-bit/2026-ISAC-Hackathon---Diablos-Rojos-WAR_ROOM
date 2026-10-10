@@ -12,7 +12,8 @@ export async function api<T>(path: string, params?: Record<string, string | numb
 export type Meta = {
   our_team_code: string; our_team_name: string; home_stadium_id: string; seasons: number[];
   schedule_seasons: number[]; current_season: number; paper_url: string | null; model: string;
-  synthetic: boolean; capabilities: Record<string, boolean>;
+  synthetic: boolean; capabilities: Record<string, boolean>; has_rosters?: boolean;
+  sources?: Record<string, string>;
 };
 
 export type Stadium = {

@@ -229,7 +229,7 @@ def free_agents(store: Store, status: str, role: str | None, throws: str | None,
     if status == "fa":
         u = u[u.status == "FA"]
     elif status == "signed":
-        u = u[u.status != "FA"]
+        u = u[~u.status.isin(["FA", "?"])]
     if role in ("SP", "RP"):
         u = u[u.role == role]
     if throws in ("Right", "Left"):

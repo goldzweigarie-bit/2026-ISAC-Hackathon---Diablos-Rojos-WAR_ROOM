@@ -66,7 +66,7 @@ export default function StadiumPage() {
         <>
           <section className="panel" style={{ marginBottom: 18, display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 220 }}>
-              <div className="eyebrow">{proj.pitcher.team_name ?? t("freeAgent")} · {proj.pitcher.role === "SP" ? t("sp") : t("rp")} · {proj.pitcher.throws === "Right" ? t("right") : t("left")}</div>
+              <div className="eyebrow">{proj.pitcher.team_name ?? (proj.pitcher.status === "FA" ? t("freeAgent") : t("teamUnknown"))} · {proj.pitcher.role === "SP" ? t("sp") : t("rp")} · {proj.pitcher.throws === "Right" ? t("right") : t("left")}</div>
               <h2 style={{ fontSize: 30 }}><span className="num" style={{ fontFamily: "var(--display)" }}>{proj.pitcher.name}</span></h2>
               <Link to={`/lanzador/${pid}`} className="muted small" style={{ textDecoration: "underline" }}>{t("profileLink")} →</Link>
             </div>

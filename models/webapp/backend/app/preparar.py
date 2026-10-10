@@ -1,30 +1,29 @@
-"""Build the processed tables the app reads from whatever pitch files are in data/raw/.
+"""Convierte los pitcheos que entrega el API 1 en las tablas que usa la web app (todo en memoria).
 
-    python scripts/ingest.py
+Recibe el DataFrame tal cual lo da `/pitcheos/descargar` y devuelve:
+  arsenal        un renglón por pitcher × temporada × tipo de pitcheo (promedios físicos, aceleraciones a nivel del mar)
+  pitchers       un renglón por pitcher × temporada (mano, rol SP/RP, juegos, whiffs por lado del bateador)
+  appearances    salidas por fecha (solo si los datos traen fechas: datos de la final)
+  team_hand      % de bateadores zurdos por equipo (solo si traen equipos)
+  rosters        data/rosters/<temporada>.csv, si existe (nombres, equipos y agentes libres)
+  altitude_study la prueba empírica de que el Magnus escala con la densidad del aire
+  meta           temporadas, columnas disponibles, densidad de referencia
 
-Drop new files (CSV or Parquet, any number, any season) into data/raw/ and run this again. Column names are
-resolved through data/reference/column_map.json, stadium names through the aliases in stadiums.json, and
-pitcher names / teams / free-agent status through data/rosters/<season>.csv when present. The anonymized hackathon
-file works too: without Date / Stadium / team columns the app still runs, and the features that need them
-(workload, schedule-aware bullpen, observed park splits) say so instead of breaking.
+Los nombres de columna se resuelven con data/reference/column_map.json. Con los datos anonimizados la app
+funciona igual: lo que necesita fechas o equipos (cansancio del bullpen, agentes libres) avisa en vez de romperse.
 """
 from __future__ import annotations
 
 import json
 import re
-import sys
 import unicodedata
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-from app.physics import G_FT_S2, air_density, to_sea_level  # noqa: E402
+from .physics import G_FT_S2, air_density, to_sea_level
 
-DATA = Path(__import__("os").environ.get("STUFFPLUS_DATA_DIR", ROOT / "data"))
-PROCESSED = DATA / "processed"
 PITCH_TYPES = ["Four-Seam", "Sinker", "Cutter", "Slider", "Curveball", "Changeup", "Splitter"]
 PITCH_TYPE_ALIASES = {
     "fourseamfastball": "Four-Seam", "fastball": "Four-Seam", "four-seam": "Four-Seam", "fourseam": "Four-Seam",
@@ -38,19 +37,6 @@ PITCH_TYPE_ALIASES = {
 def norm_text(s: str) -> str:
     s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z0-9]", "", s.lower())
-
-
-def read_raw() -> pd.DataFrame:
-    files = sorted(list((DATA / "raw").glob("*.csv")) + list((DATA / "raw").glob("*.parquet")))
-    if not files:
-        sys.exit("No files in data/raw/. Run scripts/generate_synthetic.py or add the real pitch files.")
-    frames = []
-    for f in files:
-        df = pd.read_parquet(f) if f.suffix == ".parquet" else pd.read_csv(f, low_memory=False)
-        df["_source_file"] = f.name
-        frames.append(df)
-        print(f"read {f.name}: {len(df):,} rows")
-    return pd.concat(frames, ignore_index=True)
 
 
 def canonicalize(raw: pd.DataFrame, column_map: dict) -> tuple[pd.DataFrame, dict]:
@@ -75,18 +61,20 @@ def to_flag(s: pd.Series) -> pd.Series:
     return mapped
 
 
-def main() -> None:
-    ref = DATA / "reference"
+class DatosInvalidos(RuntimeError):
+    """Los pitcheos no traen lo mínimo para armar la app (se explica qué falta)."""
+
+
+def preparar(raw: pd.DataFrame, data_dir: Path) -> dict:
+    ref = data_dir / "reference"
     config = json.loads((ref / "app_config.json").read_text(encoding="utf-8"))
     column_map = json.loads((ref / "column_map.json").read_text(encoding="utf-8"))
     stadiums = json.loads((ref / "stadiums.json").read_text(encoding="utf-8"))["stadiums"]
-    PROCESSED.mkdir(parents=True, exist_ok=True)
 
-    raw = read_raw()
     df, used = canonicalize(raw, column_map)
     missing_core = [c for c in ("pitcher_id", "pitch_type", "rel_speed", "throws") if c not in df]
     if missing_core:
-        sys.exit(f"Missing required columns {missing_core}. Add their names to column_map.json.")
+        raise DatosInvalidos(f"Faltan columnas {missing_core}. Agrega sus nombres a column_map.json.")
     capabilities = {
         "has_dates": "date" in df,
         "has_stadiums": "stadium" in df,
@@ -94,8 +82,7 @@ def main() -> None:
         "has_names": "pitcher_name" in df,
         "has_trajectory": all(c in df for c in ("x0", "z0", "vx0", "vy0", "vz0", "ax0", "ay0", "az0")),
     }
-    print("columns used:", used)
-    print("capabilities:", capabilities)
+    log = []                                   # avisos para la terminal del traductor
 
     # --- types and cleaning --------------------------------------------------------------------------
     df["pitch_type"] = df["pitch_type"].map(lambda v: PITCH_TYPE_ALIASES.get(norm_text(v), v))
@@ -122,7 +109,7 @@ def main() -> None:
     elif capabilities["has_dates"]:
         df["season"] = pd.to_datetime(df["date"]).dt.year
     else:
-        sys.exit("Need a season/year or a date column.")
+        raise DatosInvalidos("Hace falta una columna de temporada (year) o de fecha.")
     df = df.dropna(subset=["season", "rel_speed"])
     df["season"] = df["season"].astype(int)
     df["pitcher_id"] = df["pitcher_id"].astype(str)
@@ -137,8 +124,8 @@ def main() -> None:
         df["stadium_id"] = df["stadium"].map(lambda v: alias_to_id.get(norm_text(v)))
         unmatched = df.loc[df["stadium_id"].isna(), "stadium"].value_counts()
         if len(unmatched):
-            print("WARNING unmatched stadium names (add them to aliases in stadiums.json):")
-            print(unmatched.head(20).to_string())
+            log.append("Estadios sin reconocer (agrégalos a aliases en stadiums.json): "
+                       + ", ".join(map(str, unmatched.head(20).index)))
     else:
         df["stadium_id"] = None
     alt = df["stadium_id"].map(lambda i: st_by_id[i]["altitude_m"] if i in st_by_id else np.nan)
@@ -148,7 +135,7 @@ def main() -> None:
         from_cat = df["altitude_category"].astype(str).map(cat_map)
         unknown = df.loc[alt.isna() & from_cat.isna(), "altitude_category"].value_counts()
         if len(unknown):
-            print("WARNING altitude_category values not in app_config.altitude_category_to_m:", unknown.to_dict())
+            log.append(f"altitude_category sin altitud en app_config.altitude_category_to_m: {unknown.to_dict()}")
         alt = alt.fillna(from_cat)
     df["altitude_m"] = alt.fillna(0.0)
     df["temp_c"] = temp.fillna(25.0)
@@ -225,12 +212,11 @@ def main() -> None:
         pitchers["role"] = "RP"
 
     # rosters override name / team / role and define free agents
-    roster_frames = [pd.read_csv(f) for f in sorted((DATA / "rosters").glob("*.csv"))] if (DATA / "rosters").exists() else []
+    roster_frames = [pd.read_csv(f) for f in sorted((data_dir / "rosters").glob("*.csv"))] if (data_dir / "rosters").exists() else []
     rosters = pd.concat(roster_frames, ignore_index=True) if roster_frames else pd.DataFrame(
         columns=["season", "pitcher_id", "name", "team_code", "role"])
     if len(rosters):
         rosters["pitcher_id"] = rosters["pitcher_id"].astype(str)
-        rosters.to_parquet(PROCESSED / "rosters.parquet", index=False)
         r = rosters.drop_duplicates(["season", "pitcher_id"], keep="last").set_index(["season", "pitcher_id"])
         idx = pd.MultiIndex.from_frame(pitchers[["season", "pitcher_id"]])
         for col in ("name", "team_code", "role"):
@@ -246,15 +232,14 @@ def main() -> None:
         pitchers = pitchers.merge(plat.reset_index(), on=["season", "pitcher_id"], how="left")
 
     # appearances (workload) and team batting handedness
+    appearances = team_hand = None
     if capabilities["has_dates"] and "game_id" in df:
         app_cols = ["season", "pitcher_id", "date", "game_id"] + (["stadium_id"] if capabilities["has_stadiums"] else [])
         appearances = df.groupby(app_cols, dropna=False).size().rename("pitches").reset_index()
         appearances["date"] = pd.to_datetime(appearances["date"])
-        appearances.to_parquet(PROCESSED / "appearances.parquet", index=False)
     if "batter_team" in df and "bats" in df:
-        lhb = (df.assign(is_l=(df["bats"] == "Left").astype(float))
+        team_hand = (df.assign(is_l=(df["bats"] == "Left").astype(float))
                .groupby(["season", "batter_team"])["is_l"].mean().rename("lhb_share").reset_index())
-        lhb.to_parquet(PROCESSED / "team_handedness.parquet", index=False)
 
     # --- empirical altitude study: does spin-induced acceleration scale with air density? --------------
     df["a_spin_obs"] = np.hypot(df["ax0"], df["az0"] + G_FT_S2)
@@ -283,23 +268,15 @@ def main() -> None:
     altitude_study = {"grouped_by": group_col, "rows": study_rows, "elasticity_spin_vs_density": slope,
                       "note": "Elasticity 1.0 means Magnus acceleration scales one-for-one with air density, as physics predicts."}
 
-    arsenal.to_parquet(PROCESSED / "arsenal.parquet", index=False)
-    pitchers.to_parquet(PROCESSED / "pitchers.parquet", index=False)
-    (PROCESSED / "altitude_study.json").write_text(json.dumps(altitude_study, indent=2), encoding="utf-8")
     meta = {
         "seasons": sorted(int(s) for s in df["season"].unique()),
         "capabilities": capabilities,
+        "columns_used": used,
         "rho_ref": rho_ref,
         "rows": int(len(df)),
         "arm_sign": {"Right": float(sign_r), "Left": float(sign_l)},
-        "source_files": sorted(df_source for df_source in raw["_source_file"].unique()),
-        "synthetic": any(str(f).startswith("synthetic_") for f in raw["_source_file"].unique()),
+        "source_files": ["API 1 /pitcheos/descargar"],
+        "synthetic": False,
     }
-    (PROCESSED / "ingest_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    print(f"done: {len(arsenal):,} pitcher-pitch rows, {len(pitchers):,} pitcher-seasons, seasons {meta['seasons']}")
-    if slope is not None:
-        print(f"altitude study: spin-acceleration elasticity vs density = {slope:.2f}")
-
-
-if __name__ == "__main__":
-    main()
+    return {"arsenal": arsenal, "pitchers": pitchers, "appearances": appearances, "team_hand": team_hand,
+            "rosters": rosters if len(rosters) else None, "altitude_study": altitude_study, "meta": meta, "log": log}

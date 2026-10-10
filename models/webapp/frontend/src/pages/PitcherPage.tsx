@@ -29,7 +29,7 @@ export default function PitcherPage() {
           <div className="eyebrow">{p.role === "SP" ? t("sp") : t("rp")} · {p.throws === "Right" ? t("right") : t("left")}</div>
           <h1 className="num" style={{ fontFamily: "var(--display)" }}>{p.name}</h1>
           <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-            {p.status === "FA" ? <span className="chip gold">{t("freeAgent")}</span> : <span className={`chip ${ours ? "red" : ""}`}>{ours ? t("ours") : `${t("onTeam")} ${p.status}`}</span>}
+            {p.status === "FA" ? <span className="chip gold">{t("freeAgent")}</span> : p.status === "?" ? <span className="chip">{t("teamUnknown")}</span> : <span className={`chip ${ours ? "red" : ""}`}>{ours ? t("ours") : `${t("onTeam")} ${p.status}`}</span>}
             {p.team_name && <span className="chip">{p.season}: {p.team_name}</span>}
             <span className="chip num">{p.n_pitches} {t("pitches").toLowerCase()}{p.games ? ` · ${p.games} ${t("games").toLowerCase()}` : ""}</span>
           </div>

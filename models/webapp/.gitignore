@@ -1,6 +1,11 @@
 node_modules/
-backend/data/raw/
-backend/data/processed/
+# llaves: nunca a GitHub
+backend/.env
+# copia local de los pitcheos del API 1 y rosters (datos de la competencia)
+backend/data/cache/
 backend/data/rosters/
+__pycache__/
+.pytest_cache/
 # the schedule is public data, keep it despite the root *.csv rule
 !backend/data/schedule/*.csv
+*.tsbuildinfo

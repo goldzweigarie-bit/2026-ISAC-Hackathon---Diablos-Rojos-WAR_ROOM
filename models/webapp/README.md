@@ -1,77 +1,119 @@
-# Diablos Stuff+
+# Diablos Stuff+ · web app
 
-Web app for the Diablos Rojos hackathon: altitude-adjusted Stuff+ for every LMB ballpark.
+Web app del hackathon Diablos Rojos: Stuff+ ajustado por altitud en cada parque de la LMB.
 
-- **Home**: map of the 20 LMB parks (click one), search by pitcher ID or park name, the Diablos schedule calendar, the little diablo (bullpen recommendation for the selected date's series), and a free-agent lookup.
-- **Ballpark page**: strike zone (catcher's view) showing where each pitch of the chosen pitcher ends up at sea level vs. this park when thrown with the identical release (click the zone to move the aim point), movement plot, and the crown: every pitcher ranked by projected Stuff+ at that altitude.
-- **Pitcher profile**: arsenal, Stuff+ at each of the 20 parks, recent workload. Reached from search or by clicking any ranking row.
-- **Free agents**: pitchers not on the Diablos, marked as free agent or on another team, ranked by projected Stuff+ at Harp Helú and by how much they'd improve our staff.
-- **Methodology**: model pipeline, validation (from your training pipeline), the empirical altitude study, and a button to the paper.
-- ES / EN toggle everywhere.
+```
+API 1 :8000 (pitcheos) ──────────────────────────────┐
+                                                     ├──→ traductor :8002 ──→ frontend (navegador)
+Stuff+ / BayesBall ──→ API 2 :8001 (resultados) ─────┘
+```
 
-## Run it
+Esta carpeta tiene dos piezas:
 
-**Without Node** (the built page is in `frontend/dist`): run only the backend steps and open http://localhost:8000. On a Mac use `python3` instead of `python`.
+- **`backend/`, el traductor.** No tiene datos ni modelo propios. Pide los pitcheos al API 1 y el Stuff+ al API 2, y los convierte en las respuestas que necesita cada pantalla.
+- **`frontend/`, lo que se ve.** Un React ya compilado en `frontend/dist`, que el traductor sirve directamente.
+
+## Pantallas
+
+- **Inicio**: mapa de los 20 parques, buscador, calendario de los Diablos, el diablo (bullpen para la siguiente serie) y agentes libres.
+- **Parque**: zona de strike vista desde el cátcher. Muestra dónde cae cada pitcheo del pitcher elegido a nivel del mar contra este parque con la misma salida. También tiene la gráfica de movimiento y la corona: el ranking de pitchers por Stuff+ en ese parque.
+- **Pitcher**: arsenal, Stuff+ en los 20 parques y cargas de trabajo.
+- **Agentes libres** y **Metodología**: la segunda incluye el estudio de altitud, las métricas de validación y el link al paper.
+- Botón ES / EN en todas las pantallas.
+
+## Correrlo
+
+Necesitas Python 3.10 o superior. Node no hace falta para la demo.
 
 ```bash
-# backend (Python 3.10+)
 cd models/webapp/backend
-pip install -r requirements.txt
-python scripts/generate_synthetic.py   # only while there is no real data
-python scripts/ingest.py
-uvicorn app.main:app --reload --port 8000
+python3 -m pip install -r requirements.txt
+cp .env.example .env          # pon las llaves (ver abajo)
+python3 -m uvicorn app.main:app --port 8002
+```
 
-# frontend (Node 18+), in another terminal
+Abre **http://localhost:8002**. El API 1 y el API 2 tienen que estar prendidos, cada uno en su propia Terminal.
+
+### `.env`
+
+| Variable | Valor |
+|---|---|
+| `API1_URL` / `API1_KEY` | `http://localhost:8000` y la misma llave que `api/.env` |
+| `API2_URL` / `API2_KEY` | `http://localhost:8001` y la llave de **lectura** del API 2 (`API_KEY` de `api2/.env`), no la de escritura |
+| `PAPER_URL` | opcional: link al paper para la página de Metodología |
+
+El `.env` nunca va a GitHub, porque ya está en `.gitignore`.
+
+### Qué pasa si algo está apagado
+
+| Situación | Qué hace el traductor |
+|---|---|
+| API 2 sin la tabla de Stuff+ (los modelos no han terminado) | Usa un **Stuff+ provisional** con pesos a mano, sin entrenar. El encabezado dice "Modelo provisional" |
+| El modelo sube su tabla al API 2 | `POST http://localhost:8002/api/admin/reload` (o reiniciar) y la app pasa a usar el modelo |
+| API 1 apagado al arrancar | Usa la última copia guardada en `backend/data/cache/`, que se crea sola la primera vez y nunca va a GitHub |
+
+## Cómo se conecta el modelo
+
+El traductor busca en el API 2 la tabla **`stuff_plus_por_pitcher_tipo`**. El formato exacto está en **[CONTRATO_API2.md](CONTRATO_API2.md)**. En resumen:
+- Un renglón por pitcher × temporada × tipo de pitcheo.
+- El Stuff+ va en tres niveles de altitud: `stuff_plus_nivel_mar`, `stuff_plus_media` y `stuff_plus_cdmx`.
+
+Cada parque toma la columna de su nivel. Por ejemplo, Harp Helú y Serdán toman `stuff_plus_cdmx`. Los umbrales están en `niveles_altitud` de `data/reference/app_config.json`.
+
+## Para editar el diseño (frontend)
+
+Necesitas Node 18 o superior. Deja el traductor prendido en el puerto 8002 y, en otra Terminal:
+
+```bash
 cd models/webapp/frontend
 npm install
-npm run dev          # http://localhost:5173 (proxies /api to :8000)
+npm run dev          # http://localhost:5173, con recarga en vivo (pide /api al :8002)
 ```
 
-For a single server: `cd models/webapp/frontend && npm run build`, then uvicorn serves the built app at http://localhost:8000.
+- Los estilos están en `src/styles.css`, los textos ES/EN en `src/i18n.tsx` y las pantallas en `src/pages/`.
+- Al terminar, corre **`npm run build`**. Eso actualiza `frontend/dist`, que es lo que se ve en la demo.
 
-## Swapping in the real data
+## Archivos del traductor (`backend/app/`)
 
-1. Delete `backend/data/raw/synthetic_*.parquet` and `backend/data/rosters/2026.csv`, put the real pitch files (CSV or Parquet, any number of seasons) in `backend/data/raw/`.
-2. If a column has a different name, add it to `backend/data/reference/column_map.json`. Nothing else changes.
-3. If stadium names don't match, `ingest.py` prints them; add them to `aliases` in `backend/data/reference/stadiums.json`.
-4. Replace the keys in `altitude_category_to_m` (in `app_config.json`) with the real `altitude_category` values. Only used for pitches without a stadium.
-5. Run `python scripts/ingest.py`, then restart the server (or `POST /api/admin/reload`).
+Están en el orden en que fluyen los datos:
 
-**Anonymized hackathon file**: works as is. Without `Date`, `Stadium`, team or name columns the map, parks, rankings, profiles and altitude study all run; the bullpen workload and team-based features wait for the final data. A roster file fixes that too.
+| Archivo | Qué hace |
+|---|---|
+| `fuentes.py` | Habla con el API 1 y el API 2, y guarda la copia local de los pitcheos |
+| `preparar.py` | Convierte los pitcheos en tablas: arsenal por pitcher y tipo, rol SP/RP, estudio de altitud |
+| `store.py` | Junta todo en memoria: la física de cada pitcheo en cada parque y el Stuff+ del API 2 por nivel |
+| `physics.py` | Densidad del aire, Magnus y drag, y trayectorias |
+| `services.py` | Arma la respuesta de cada pantalla |
+| `bullpen.py` | La recomendación del diablo |
+| `main.py` | Recibe las preguntas del frontend (`/api/...`) y sirve `frontend/dist` |
+| `model.py` | Stuff+ provisional: solo se usa mientras no exista la tabla en el API 2 |
 
-**Rosters / free agents**: `backend/data/rosters/<season>.csv` with `season,pitcher_id,name,team_code,role`. `team_code` is a code from `stadiums.json` (MEX, PUE, …) or `FA`. The latest season's roster decides who is a free agent.
+## Datos de la final y temporada 2027
 
-## Plugging in the trained model
+- **Datos de la final** (con nombres, equipos, fechas y estadios): el API 1 los entrega y el traductor los reconoce solo. Se encienden el cansancio del bullpen y los agentes libres. Si alguna columna trae otro nombre, agrégalo en `data/reference/column_map.json`.
+- **Rosters** (opcional): `backend/data/rosters/<temporada>.csv` con `season,pitcher_id,name,team_code,role`. `team_code` es un código de `stadiums.json` (MEX, PUE…) o `FA`.
+- **2027**: corre `python3 scripts/fetch_schedule.py --season 2027` para bajar el calendario de la API pública de MLB.
 
-Save any object with `predict(DataFrame) -> array` (sklearn Pipeline, or a wrapper that combines the four sub-models) to `backend/data/processed/stuff_model.joblib`. It receives the columns in `FEATURE_COLUMNS` (`backend/app/model.py`), evaluated at each park's air density, and should return higher = better. The app converts that to 100 + 10·z per park and season. Until the file exists a hand-weighted placeholder runs and the header says so.
+## Notas
 
-Validation metrics: write `backend/data/processed/validation_metrics.json`:
+- **Datos anonimizados:** no traen equipos ni fechas. Por eso:
+  - Los pitchers aparecen como "Equipo ?".
+  - El diablo explica que todavía no puede saber quién es del staff.
+  - El estudio de altitud se agrupa por `altitude_category`.
+- **Calendario 2026:** viene de la API de MLB (sportId 23), que lista 97 juegos (68-29). El conteo oficial es 93 (64-29). Hay que compararlo antes de presentar.
+- **Altitudes:** Harp Helú (2,232 m) y Serdán (2,192 m) son oficiales de la LMB. Las demás son aproximadas y están en `stadiums.json`.
+- **Física:** el Magnus y el drag escalan con la densidad del aire, y la humedad se ignora.
 
-```json
-{"metrics": [{"name": "Stuff+ vs next-season RV/100 (r)", "value": 0.41, "split": "temporal holdout 2026"}],
- "submodels": [{"name": "Whiff", "target": "is_whiff | swing", "metric": "AUC", "value": 0.71}],
- "notes": "GroupKFold by pitcher, 5 folds."}
-```
-
-Paper link: set `paper_url` in `app_config.json` (or the `PAPER_URL` environment variable).
-
-## 2027 season
+## Pruebas
 
 ```bash
-python scripts/fetch_schedule.py --season 2027   # pulls from the MLB Stats API, which carries the LMB
+cd models/webapp/backend && python3 -m pytest
 ```
-Add 2027 pitch files to `data/raw/`, a 2027 roster, re-run `ingest.py`. The calendar, bullpen and rankings pick up the newest season automatically.
 
-## Data notes
+Las 11 pruebas simulan el API 1 y el API 2 con datos sintéticos (`tests/sintetico.py`), así que no necesitan que haya nada prendido. Cubren cuatro casos:
+- API 2 vacío.
+- API 2 con la tabla del modelo.
+- La tabla sin la columna `stuff_plus_media`.
+- Datos anonimizados como los reales.
 
-- The 2026 Diablos schedule comes from the MLB Stats API (sportId 23). It lists 97 games (68-29) while the league's official count is 93 (64-29), probably resumed or duplicated games. Check it against the official calendar before presenting.
-- Harp Helú (2,232 m) and Hermanos Serdán (2,192 m) altitudes come from the LMB's published list; the other altitudes, coordinates and game temperatures are approximate. All live in `stadiums.json`.
-- Physics: Magnus and drag accelerations scale with air density (`backend/app/physics.py`). Every pitch is converted to a sea-level equivalent and projected to each park. Humidity is ignored.
-- Coordinates assume x points to the first-base side from the catcher's view; the fastball arm-side sign is detected from the data.
-- Map: Natural Earth admin-1 (public domain).
-
-## Tests
-
-```bash
-cd models/webapp/backend && python -m pytest
-```
+Tardan como un minuto.

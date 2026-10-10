@@ -42,6 +42,7 @@ export function BullpenDrawer({ onClose }: { onClose: () => void }) {
               {data.opponent_lhb_share != null && <div className="stat" style={{ textAlign: "right" }}><span className="v num" style={{ fontSize: 20 }}>{fmt(data.opponent_lhb_share, 0)}%</span><span className="l">{t("opponentLhb")}</span></div>}
             </Link>
             {!data.workload_known && <p className="chip gold" style={{ marginTop: 10 }}>{t("workloadUnknown")}</p>}
+            {data.relievers.length === 0 && data.starters.length === 0 && <p className="muted" style={{ marginTop: 14 }}>{t("noStaff")}</p>}
             {SLOT_ORDER.map((slot) => {
               const rows = data.relievers.filter((r) => r.slot === slot);
               if (!rows.length) return null;

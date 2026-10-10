@@ -1,16 +1,10 @@
-"""Stuff model interface.
+"""Stuff+ PROVISIONAL: solo se usa mientras el API 2 no tenga la tabla de Stuff+ del modelo.
 
-The app never assumes how Stuff is modeled. It builds a feature table (one row per pitcher x pitch type,
-evaluated at a given air density) and asks the model for a raw score where higher = better for the pitcher.
-Stuff+ is then 100 + 10 * z of that score, computed within each park and season.
-
-To plug in the trained model, save any object with a `predict(DataFrame) -> array` method (sklearn Pipeline,
-or the four sub-models wrapped in one class) to data/processed/stuff_model.joblib. It receives the columns in
-FEATURE_COLUMNS. Until that file exists the transparent placeholder below is used, and the Methodology page says so.
+No está entrenado: son pesos puestos a mano para que la web app tenga algo que mostrar antes de que el
+modelo termine. En cuanto el modelo sube su tabla al API 2, el traductor deja de usar este archivo (y el
+encabezado de la app deja de decir "Modelo provisional").
 """
 from __future__ import annotations
-
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -66,21 +60,6 @@ class PlaceholderStuffModel:
         score[off] = (-0.012 * (diff - 9.0) ** 2 + 0.05 * (fb_ivb[off] - ivb[off] - 6) + 0.03 * (hb[off] - 12)
                       + 0.03 * (velo[off] - 76))
         return score
-
-
-def load_model(processed_dir: Path):
-    path = processed_dir / "stuff_model.joblib"
-    if path.exists():
-        import joblib
-
-        model = joblib.load(path)
-        if not hasattr(model, "name"):
-            try:
-                model.name = "trained"
-            except AttributeError:
-                pass
-        return model
-    return PlaceholderStuffModel()
 
 
 def stuff_plus(raw: np.ndarray, weights: np.ndarray, groups: np.ndarray) -> np.ndarray:
