@@ -1,19 +1,17 @@
 # Stuff+ Model — Diablos Rojos del México (Hackathon ISAC 2026)
 
 Sistema de evaluación pitch-by-pitch que estima la calidad esperada de cada lanzamiento
-(Stuff+, Location+, Pitching+) ajustado por las condiciones físicas del **Harp Helú (2,240 msnm)**,
-el estadio de mayor altitud de la LMB.
 
 > **Escala:** `Stuff+ = 100 + 10 × z(score_pitch)` — 100 = promedio LMB ajustado por temporada y estadio.
 
 ## Equipo
 
-| Rol | Nombre | GitHub |
-|---|---|---|
-| Data Science Lead | _pendiente_ | @ |
-| ML Engineer | _pendiente_ | @ |
-| Física / Ingeniería | _pendiente_ | @ |
-| Dashboard / Negocio | _pendiente_ | @ |
+|Nombre | GitHub |
+|---|---|
+| Fernando Arellano | @FerArGo56 |
+| Arié Goldzweig | @goldzweigarie-bit |
+| Mikel Loret | @loretmikel |
+| Meyer Hemilson | @Meyer03 |
 
 ## Los 5 Entregables y dónde vive cada uno
 
@@ -59,15 +57,6 @@ stuff-plus-diablos/
 │   └── documento-tecnico/     ← entregable 5 (LaTeX/Markdown → PDF)
 └── models/                    ← artefactos .pkl/.json (se suben versionados livianos)
 ```
-
-## Plan de trabajo sugerido
-
-1. **Semana 1:** EDA (`01`), definición de targets (whiff, chase, weak contact, barrel, xRunValue)
-2. **Semana 1–2:** Feature engineering (`02`): features físicas + relacionales de arsenal (`velo_diff_vs_fb`, túnel, uso) + contexto (estadio, altitud, count)
-3. **Semana 2–3:** Modelado (`03`): XGBoost/LightGBM multi-objetivo → score → normalización a escala 100
-4. **Semana 3:** Validación (`05`): pitcher holdout, season holdout, **park holdout** (clave: 25% de la evaluación)
-5. **Semana 3–4:** Efecto altitud (`04`) + redacción de entregables 1–3 + dashboard (`app.py`)
-6. **Semana 4:** Documento técnico + ensayo de la entrevista de 10 min con el jurado
 
 ## Hipótesis a validar (de la convocatoria)
 
