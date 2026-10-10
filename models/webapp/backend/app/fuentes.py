@@ -18,7 +18,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 import requests
 
 log = logging.getLogger("traductor")
@@ -55,7 +55,7 @@ class Fuentes:
         self.api2_key = os.getenv("API2_KEY", "")
 
     # ---------------------------------------------------------------------------------------- utilidades
-    def _descargar(self, url: str, llave: str, ruta: str, **params) -> pd.DataFrame:
+    def _descargar(self, url: str, llave: str, ruta: str, **params) -> pl.DataFrame:
         if not llave:
             raise FuenteNoDisponible(f"Falta la llave para {url} en backend/.env")
         try:
@@ -66,33 +66,33 @@ class Fuentes:
         if r.status_code != 200:
             detalle = r.json().get("detail") if "json" in r.headers.get("content-type", "") else r.text[:200]
             raise FuenteNoDisponible(f"{url}{ruta} respondió {r.status_code}: {detalle}")
-        return pd.read_parquet(io.BytesIO(r.content))
+        return pl.read_parquet(io.BytesIO(r.content))
 
     # ---------------------------------------------------------------------------------------- API 1
-    def pitcheos(self) -> pd.DataFrame:
+    def pitcheos(self) -> pl.DataFrame:
         """Todo el dataset del API 1. Guarda una copia local para poder arrancar aunque el API 1 esté apagado."""
         copia = self.cache_dir / "pitcheos_api1.parquet"
         try:
             df = self._descargar(self.api1_url, self.api1_key, "/pitcheos/descargar")
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            df.to_parquet(copia, index=False)
+            df.write_parquet(copia)
             self.estado["pitcheos"] = "api1"
-            log.info("API 1: %s pitcheos", f"{len(df):,}")
+            log.info("API 1: %s pitcheos", f"{df.height:,}")
             return df
         except FuenteNoDisponible as e:
             if not copia.exists():
                 raise FuenteNoDisponible(f"{e} Y no hay copia guardada en {copia}.") from e
             log.warning("%s Uso la copia guardada (%s).", e, copia.name)
             self.estado["pitcheos"] = "copia_local"
-            return pd.read_parquet(copia)
+            return pl.read_parquet(copia)
 
     # ---------------------------------------------------------------------------------------- API 2
-    def tabla_api2(self, nombre: str) -> pd.DataFrame | None:
+    def tabla_api2(self, nombre: str) -> pl.DataFrame | None:
         """Una tabla de resultados del API 2, o None si el API 2 no responde o la tabla no existe todavía."""
         try:
             df = self._descargar(self.api2_url, self.api2_key, f"/resultados/{nombre}/descargar")
             self.estado[nombre] = "api2"
-            log.info("API 2: tabla '%s' (%s renglones)", nombre, f"{len(df):,}")
+            log.info("API 2: tabla '%s' (%s renglones)", nombre, f"{df.height:,}")
             return df
         except FuenteNoDisponible as e:
             self.estado[nombre] = "no_disponible"

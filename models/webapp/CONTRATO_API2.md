@@ -34,6 +34,8 @@ tabla = (por_pitcher_tipo.reset_index()
 api2.subir("stuff_plus_por_pitcher_tipo", tabla, modelo="stuff_plus", version="v1")
 ```
 
+`subir()` acepta la tabla en pandas (como está hoy el notebook) o en Polars. Si el notebook pasa a Polars, es el mismo `select` sin `reset_index()`.
+
 Luego, en la web app: `POST http://localhost:8002/api/admin/reload` (o reiniciar el traductor).
 
 ## Tabla `validacion` (opcional: página de Metodología)

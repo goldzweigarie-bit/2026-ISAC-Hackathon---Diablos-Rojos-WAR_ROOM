@@ -10,7 +10,7 @@ Stuff+ / BayesBall ──→ API 2 :8001 (resultados) ─────┘
 
 Esta carpeta tiene dos piezas:
 
-- **`backend/`, el traductor.** No tiene datos ni modelo propios. Pide los pitcheos al API 1 y el Stuff+ al API 2, y los convierte en las respuestas que necesita cada pantalla.
+- **`backend/`, el traductor (Python + Polars, sin pandas).** No tiene datos ni modelo propios. Pide los pitcheos al API 1 y el Stuff+ al API 2, y los convierte en las respuestas que necesita cada pantalla.
 - **`frontend/`, lo que se ve.** Un React ya compilado en `frontend/dist`, que el traductor sirve directamente.
 
 ## Pantallas
@@ -110,10 +110,9 @@ Están en el orden en que fluyen los datos:
 cd models/webapp/backend && python3 -m pytest
 ```
 
-Las 11 pruebas simulan el API 1 y el API 2 con datos sintéticos (`tests/sintetico.py`), así que no necesitan que haya nada prendido. Cubren cuatro casos:
+Las 11 pruebas (unos 10 s) simulan el API 1 y el API 2 con datos sintéticos (`tests/sintetico.py`), así que no necesitan que haya nada prendido. Cubren cuatro casos:
 - API 2 vacío.
 - API 2 con la tabla del modelo.
 - La tabla sin la columna `stuff_plus_media`.
 - Datos anonimizados como los reales.
 
-Tardan como un minuto.

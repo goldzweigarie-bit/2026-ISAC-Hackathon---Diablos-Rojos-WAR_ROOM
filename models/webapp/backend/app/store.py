@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from .fuentes import Fuentes, cargar_env
 from .model import FEATURE_COLUMNS, PlaceholderStuffModel, stuff_plus
@@ -39,6 +39,11 @@ def _read_json(path: Path, default=None):
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
 
 
+def serie(nombre: str, valores) -> pl.Series:
+    """Arreglo de numpy → columna de Polars; los NaN quedan como vacíos (null), igual que en el resto de la app."""
+    return pl.Series(nombre, np.asarray(valores, dtype=float), nan_to_null=True)
+
+
 class Store:
     def __init__(self, data_dir: Path = DATA_DIR, fuentes: Fuentes | None = None):
         self.data_dir = Path(data_dir)
@@ -59,11 +64,11 @@ class Store:
             log.warning(aviso)
         self.meta = t["meta"]
         self.altitude_study = t["altitude_study"]
-        self.arsenal = t["arsenal"]
-        self.pitchers = t["pitchers"]
-        self.appearances = t["appearances"]
-        self.team_hand = t["team_hand"]
-        self.rosters = t["rosters"]
+        self.arsenal: pl.DataFrame = t["arsenal"]
+        self.pitchers: pl.DataFrame = t["pitchers"]
+        self.appearances: pl.DataFrame | None = t["appearances"]
+        self.team_hand: pl.DataFrame | None = t["team_hand"]
+        self.rosters: pl.DataFrame | None = t["rosters"]
 
         # 2) API 2: Stuff+ del modelo y métricas de validación (si ya existen)
         cfg = self.config["api2"]
@@ -72,16 +77,17 @@ class Store:
         self.api2_meta = self.fuentes.metadatos_api2()
         self.model = self._model_info()
         self.levels_interpolated: list[str] = []
-        self.schedules = {}
+        self.schedules: dict[int, pl.DataFrame] = {}
         for f in sorted((self.data_dir / "schedule").glob("*.csv")):
-            sched = pd.read_csv(f, dtype={"stadium_id": str})
-            if "stadium_id" not in sched:
-                sched["stadium_id"] = ""
-            sched["stadium_id"] = [s if isinstance(s, str) and s else self.stadium_by_team[h]["id"]
-                                   for s, h in zip(sched["stadium_id"].fillna(""), sched["home_code"])]
+            sched = pl.read_csv(f, schema_overrides={"stadium_id": pl.String, "date": pl.String,
+                                                     "status": pl.String})
+            if "stadium_id" not in sched.columns:
+                sched = sched.with_columns(stadium_id=pl.lit(None, dtype=pl.String))
+            sched = sched.with_columns(stadium_id=pl.Series(
+                [s if s else self.stadium_by_team[h]["id"] for s, h in zip(sched["stadium_id"], sched["home_code"])]))
             self.schedules[int(f.stem)] = sched
         self.rho_ref = float(self.meta.get("rho_ref") or air_density(0, 25))
-        self.seasons = sorted(int(s) for s in self.arsenal["season"].unique())
+        self.seasons = sorted(self.arsenal["season"].unique().to_list())
         self.current_season = max(self.seasons)
         self._build_projections()
         self._build_universe()
@@ -93,56 +99,57 @@ class Store:
         s = self.stadium_by_id[stadium_id]
         return float(air_density(s["altitude_m"], s["typical_temp_c"]))
 
-    def features_at(self, ars: pd.DataFrame, rho: float) -> pd.DataFrame:
-        ax, ay, az = at_density(ars["ax_mag_sl"], ars["ay_drag_sl"], ars["az_mag_sl"], rho, self.rho_ref)
-        f = flight(ars["x0"], ars["y0"], ars["z0"], ars["vx0"], ars["vy0"], ars["vz0"], ax, ay, az)
+    def features_at(self, ars: pl.DataFrame, rho: float) -> pl.DataFrame:
+        """Cada pitcheo del arsenal lanzado con la misma salida en un aire de densidad `rho`."""
+        a = {c: ars[c].to_numpy() for c in ("ax_mag_sl", "ay_drag_sl", "az_mag_sl", "x0", "y0", "z0",
+                                             "vx0", "vy0", "vz0", "arm_sign")}
+        ax, ay, az = at_density(a["ax_mag_sl"], a["ay_drag_sl"], a["az_mag_sl"], rho, self.rho_ref)
+        f = flight(a["x0"], a["y0"], a["z0"], a["vx0"], a["vy0"], a["vz0"], ax, ay, az)
         k = rho / self.rho_ref
-        hb, ivb = movement_inches(ars["ax_mag_sl"] * k, ars["az_mag_sl"] * k, f["t"])
-        out = ars[["season", "pitcher_id", "pitch_type", "n", "usage", "rel_speed", "spin_rate", "spin_axis",
-                   "extension", "rel_height", "rel_side", "arm_sign"]].copy()
-        out["plate_speed"] = f["plate_speed"]
-        out["vaa"] = f["vaa"]
-        out["t"] = f["t"]
-        out["ivb"] = ivb
-        out["hb"] = hb
-        out["hb_arm"] = hb * ars["arm_sign"].to_numpy()
-        out["rho_ratio"] = rho / self.rho_ref
-        # primary fastball reference per pitcher-season (at the same park)
-        fbs = out[out.pitch_type.isin(["Four-Seam", "Sinker"])].sort_values("n", ascending=False)
-        fbs = fbs.drop_duplicates(["season", "pitcher_id"])
-        fallback = out.sort_values("rel_speed", ascending=False).drop_duplicates(["season", "pitcher_id"])
-        fb = pd.concat([fbs, fallback]).drop_duplicates(["season", "pitcher_id"])
-        fb = fb[["season", "pitcher_id", "rel_speed", "ivb", "hb_arm"]].rename(
-            columns={"rel_speed": "fb_rel_speed", "ivb": "fb_ivb", "hb_arm": "fb_hb_arm"})
-        out = out.merge(fb, on=["season", "pitcher_id"], how="left")
-        out = out.merge(self.pitchers[["season", "pitcher_id", "throws"]], on=["season", "pitcher_id"], how="left")
-        return out
+        hb, ivb = movement_inches(a["ax_mag_sl"] * k, a["az_mag_sl"] * k, f["t"])
+        out = ars.select("season", "pitcher_id", "pitch_type", "n", "usage", "rel_speed", "spin_rate", "spin_axis",
+                         "extension", "rel_height", "rel_side", "arm_sign").with_columns(
+            serie("plate_speed", f["plate_speed"]), serie("vaa", f["vaa"]), serie("t", f["t"]),
+            serie("ivb", ivb), serie("hb", hb), serie("hb_arm", hb * a["arm_sign"]),
+            pl.lit(rho / self.rho_ref).alias("rho_ratio"))
+        # recta principal de cada pitcher-temporada (en el mismo parque): la más usada; si no tiene, la más rápida
+        pk = ["season", "pitcher_id"]
+        fbs = (out.filter(pl.col("pitch_type").is_in(["Four-Seam", "Sinker"]))
+                  .sort("n", descending=True, maintain_order=True).unique(pk, keep="first", maintain_order=True))
+        fallback = (out.sort("rel_speed", descending=True, nulls_last=True, maintain_order=True)
+                       .unique(pk, keep="first", maintain_order=True))
+        fb = (pl.concat([fbs, fallback]).unique(pk, keep="first", maintain_order=True)
+                .select(pk + [pl.col("rel_speed").alias("fb_rel_speed"), pl.col("ivb").alias("fb_ivb"),
+                              pl.col("hb_arm").alias("fb_hb_arm")]))
+        return (out.join(fb, on=pk, how="left", maintain_order="left")
+                   .join(self.pitchers.select(pk + ["throws"]), on=pk, how="left", maintain_order="left"))
 
     def _build_projections(self) -> None:
         min_n = self.config.get("min_pitches_pitch_type", 20)
-        ars = self.arsenal[self.arsenal["n"] >= min_n].reset_index(drop=True)
-        frames = []
-        for sid in [SEA_LEVEL_ID] + [s["id"] for s in self.stadiums]:
-            feats = self.features_at(ars, self.park_rho(sid))
-            feats["stadium_id"] = sid
-            frames.append(feats)
-        proj = pd.concat(frames, ignore_index=True)
+        ars = self.arsenal.filter(pl.col("n") >= min_n)
+        frames = [self.features_at(ars, self.park_rho(sid)).with_columns(stadium_id=pl.lit(sid))
+                  for sid in [SEA_LEVEL_ID] + [s["id"] for s in self.stadiums]]
+        proj = pl.concat(frames)
         if self.stuff_table is not None:
-            proj["stuff_plus"] = self._stuff_from_api2(proj)
+            proj = proj.with_columns(serie("stuff_plus", self._stuff_from_api2(proj)))
         else:
-            proj["raw"] = PlaceholderStuffModel().predict(proj[FEATURE_COLUMNS])
-            groups = (proj["season"].astype(str) + "|" + proj["stadium_id"]).to_numpy()
-            proj["stuff_plus"] = stuff_plus(proj["raw"].to_numpy(), proj["n"].to_numpy(dtype=float), groups)
-        parks_only = proj[proj.stadium_id != SEA_LEVEL_ID]
-        neutral = parks_only.groupby(["season", "pitcher_id", "pitch_type"])["stuff_plus"].mean().rename("stuff_neutral")
-        proj = proj.merge(neutral.reset_index(), on=["season", "pitcher_id", "pitch_type"], how="left")
-        self.proj = proj
-        w = proj.dropna(subset=["stuff_plus"]).assign(wsp=proj["stuff_plus"] * proj["n"], wn=proj["n"])
-        pp = w.groupby(["season", "stadium_id", "pitcher_id"]).agg(wsp=("wsp", "sum"), n=("wn", "sum")).reset_index()
-        pp["stuff_plus"] = pp["wsp"] / pp["n"]
-        pp = pp.drop(columns="wsp")
-        pn = pp[pp.stadium_id != SEA_LEVEL_ID].groupby(["season", "pitcher_id"])["stuff_plus"].mean().rename("stuff_neutral")
-        self.pitcher_park = pp.merge(pn.reset_index(), on=["season", "pitcher_id"], how="left")
+            raw = PlaceholderStuffModel().predict(proj.select(FEATURE_COLUMNS))
+            groups = (proj["season"].cast(pl.String) + "|" + proj["stadium_id"]).to_numpy()
+            proj = proj.with_columns(serie("raw", raw),
+                                     serie("stuff_plus", stuff_plus(raw, proj["n"].to_numpy().astype(float), groups)))
+        keys = ["season", "pitcher_id", "pitch_type"]
+        neutral = (proj.filter(pl.col("stadium_id") != SEA_LEVEL_ID).group_by(keys)
+                       .agg(stuff_neutral=pl.col("stuff_plus").mean()))
+        self.proj = proj.join(neutral, on=keys, how="left", maintain_order="left")
+        # Stuff+ de cada pitcher en cada parque = promedio de sus pitcheos ponderado por uso
+        pp = (self.proj.filter(pl.col("stuff_plus").is_not_null())
+                       .group_by(["season", "stadium_id", "pitcher_id"])
+                       .agg(wsp=(pl.col("stuff_plus") * pl.col("n")).sum(), n=pl.col("n").sum())
+                       .with_columns(stuff_plus=pl.col("wsp") / pl.col("n")).drop("wsp")
+                       .sort(["season", "stadium_id", "pitcher_id"]))
+        pn = (pp.filter(pl.col("stadium_id") != SEA_LEVEL_ID).group_by(["season", "pitcher_id"])
+                .agg(stuff_neutral=pl.col("stuff_plus").mean()))
+        self.pitcher_park = pp.join(pn, on=["season", "pitcher_id"], how="left", maintain_order="left")
 
     # ------------------------------------------------------------------------------------- Stuff+ (API 2)
     def altitude_level(self, stadium_id: str) -> str:
@@ -157,29 +164,32 @@ class Store:
                 return nivel["nivel"]
         return "No Altitude"
 
-    def _stuff_from_api2(self, proj: pd.DataFrame) -> np.ndarray:
+    def _stuff_from_api2(self, proj: pl.DataFrame) -> np.ndarray:
         """Stuff+ de cada pitcher × tipo en cada parque = la columna del nivel de altitud de ese parque.
 
         Si la tabla no trae la columna de un nivel (p. ej. todavía no hay stuff_plus_media), ese nivel se
         interpola entre nivel del mar y CDMX según la densidad del aire del parque."""
         cfg = self.config["api2"]["columnas"]
-        st = self.stuff_table.rename(columns={cfg["pitcher"]: "pitcher_id", cfg["temporada"]: "season",
-                                              cfg["tipo"]: "pitch_type"})
-        st["pitcher_id"] = st["pitcher_id"].astype(str)
-        st["season"] = pd.to_numeric(st["season"], errors="coerce")
-        st["pitch_type"] = st["pitch_type"].astype(str).replace({"Sweeper": "Slider"})
+        keys = ["season", "pitcher_id", "pitch_type"]
+        st = self.stuff_table.rename({cfg["pitcher"]: "pitcher_id", cfg["temporada"]: "season",
+                                      cfg["tipo"]: "pitch_type"})
         cols = {nivel: c for nivel, c in cfg["stuff_por_nivel"].items() if c in st.columns}
         if "No Altitude" not in cols:
             raise RuntimeError(f"La tabla de Stuff+ del API 2 no trae {cfg['stuff_por_nivel']['No Altitude']}. "
-                               f"Columnas recibidas: {list(self.stuff_table.columns)}")
-        st = st.groupby(["season", "pitcher_id", "pitch_type"])[list(cols.values())].mean()
-        key = pd.MultiIndex.from_frame(proj[["season", "pitcher_id", "pitch_type"]])
-        vals = {nivel: st[c].reindex(key).to_numpy() for nivel, c in cols.items()}
-        out = np.full(len(proj), np.nan)
+                               f"Columnas recibidas: {self.stuff_table.columns}")
+        st = (st.with_columns(pl.col("pitcher_id").cast(pl.String),
+                              pl.col("season").cast(pl.Float64, strict=False).cast(pl.Int64, strict=False),
+                              pl.col("pitch_type").cast(pl.String).replace({"Sweeper": "Slider"}),
+                              *[pl.col(c).cast(pl.Float64, strict=False).fill_nan(None) for c in cols.values()])
+                .group_by(keys).agg([pl.col(c).mean() for c in cols.values()]))
+        cruce = proj.select(keys).join(st, on=keys, how="left", maintain_order="left")
+        vals = {nivel: cruce[c].to_numpy().astype(float) for nivel, c in cols.items()}
+        out = np.full(proj.height, np.nan)
         rho_cdmx = self.park_rho(self.config["home_stadium_id"])
         self.levels_interpolated = []
-        for sid in proj["stadium_id"].unique():
-            m = (proj["stadium_id"] == sid).to_numpy()
+        sids = proj["stadium_id"].to_numpy()
+        for sid in dict.fromkeys(sids):
+            m = sids == sid
             nivel = self.altitude_level(sid)
             if nivel in vals:
                 out[m] = vals[nivel][m]
@@ -192,15 +202,17 @@ class Store:
                 out[m] = vals["No Altitude"][m]
         return out
 
-    def _validation(self, tabla: pd.DataFrame | None):
+    def _validation(self, tabla: pl.DataFrame | None):
         """Tabla 'validacion' del API 2 (columnas: nombre, valor y opcionalmente split, tipo) → página Metodología."""
         if tabla is None or not {"nombre", "valor"} <= set(tabla.columns):
             return None
-        tipo = tabla["tipo"] if "tipo" in tabla else pd.Series("metrica", index=tabla.index)
-        metrics = [{"name": r.nombre, "value": r.valor, "split": getattr(r, "split", None)}
-                   for r in tabla[tipo != "submodelo"].itertuples()]
-        subs = [{"name": r.nombre, "target": getattr(r, "objetivo", ""), "metric": getattr(r, "metrica", ""),
-                 "value": r.valor} for r in tabla[tipo == "submodelo"].itertuples()]
+        metrics, subs = [], []
+        for r in tabla.iter_rows(named=True):
+            if r.get("tipo") == "submodelo":
+                subs.append({"name": r["nombre"], "target": r.get("objetivo") or "", "metric": r.get("metrica") or "",
+                             "value": r["valor"]})
+            else:
+                metrics.append({"name": r["nombre"], "value": r["valor"], "split": r.get("split")})
         return {"metrics": metrics, "submodels": subs, "notes": "Métricas subidas por el modelo al API 2."}
 
     def _model_info(self) -> dict:
@@ -212,30 +224,36 @@ class Store:
         return {"name": f"{m.get('modelo', 'stuff_plus')} {version}", "source": "api2", "uploaded": m.get("subido")}
 
     def _build_universe(self) -> None:
-        """Latest season per pitcher plus current status (team code or 'FA')."""
-        p = self.pitchers.sort_values("season").drop_duplicates("pitcher_id", keep="last").copy()
-        status = p["team_code"].where(p["season"] == self.current_season, "FA")
-        if self.rosters is not None and len(self.rosters):
-            r = self.rosters[self.rosters.season == self.rosters.season.max()].drop_duplicates("pitcher_id", keep="last")
-            rmap = dict(zip(r.pitcher_id.astype(str), r.team_code))
-            status = pd.Series([rmap.get(pid, s) for pid, s in zip(p.pitcher_id, status)], index=p.index)
-        p["status"] = status.fillna("FA")
-        if not self.meta.get("capabilities", {}).get("has_teams") and (self.rosters is None or not len(self.rosters)):
-            p["status"] = "?"          # datos anonimizados: no se sabe en qué equipo está nadie
-        self.universe = p.set_index("pitcher_id")
+        """La última temporada de cada pitcher y su estatus actual (código de equipo, 'FA' o '?')."""
+        p = (self.pitchers.sort(["season", "pitcher_id"]).unique("pitcher_id", keep="last", maintain_order=True)
+                 .with_columns(status=pl.when(pl.col("season") == self.current_season)
+                               .then(pl.col("team_code")).otherwise(pl.lit("FA"))))
+        if self.rosters is not None and self.rosters.height:
+            r = (self.rosters.filter(pl.col("season") == self.rosters["season"].max())
+                     .unique("pitcher_id", keep="last", maintain_order=True)
+                     .select("pitcher_id", pl.col("team_code").alias("_roster_team")))
+            p = (p.join(r, on="pitcher_id", how="left", maintain_order="left")
+                  .with_columns(status=pl.coalesce("_roster_team", "status")).drop("_roster_team"))
+        p = p.with_columns(pl.col("status").fill_null("FA"))
+        if not self.meta.get("capabilities", {}).get("has_teams") and (self.rosters is None or not self.rosters.height):
+            p = p.with_columns(status=pl.lit("?"))   # datos anonimizados: no se sabe en qué equipo está nadie
+        self.universe = p.with_columns(
+            _pid_norm=pl.Series([norm_text(x) for x in p["pitcher_id"]]),
+            _name_norm=pl.Series([norm_text(x) for x in p["name"]]))
+        self.status_by_id: dict[str, str] = dict(zip(p["pitcher_id"], p["status"]))
 
     # ------------------------------------------------------------------------------------------- lookups
     def team_name(self, code):
         s = self.stadium_by_team.get(code)
         return s["team_name"] if s else None
 
-    def pitcher_row(self, pid: str, season: int | None = None):
-        rows = self.pitchers[self.pitchers.pitcher_id == pid]
-        if rows.empty:
+    def pitcher_row(self, pid: str, season: int | None = None) -> dict | None:
+        rows = self.pitchers.filter(pl.col("pitcher_id") == pid)
+        if rows.is_empty():
             return None
-        if season is not None and (rows.season == season).any():
-            return rows[rows.season == season].iloc[0]
-        return rows.sort_values("season").iloc[-1]
+        if season is not None and (rows["season"] == season).any():
+            return rows.filter(pl.col("season") == season).row(0, named=True)
+        return rows.sort("season").row(-1, named=True)
 
     def search(self, q: str, limit: int = 8):
         nq = norm_text(q)
@@ -247,9 +265,8 @@ class Store:
             if any(nq in norm_text(h) for h in hay):
                 stadiums.append({"id": s["id"], "venue_name": s["venue_name"], "city": s["city"],
                                  "team_name": s["team_name"], "altitude_m": s["altitude_m"]})
-        u = self.universe.reset_index()
-        mask = u["pitcher_id"].map(norm_text).str.contains(nq) | u["name"].astype(str).map(norm_text).str.contains(nq)
-        hits = u[mask].head(limit)
-        pitchers = [{"pitcher_id": r.pitcher_id, "name": r.name, "status": r.status, "throws": r.throws,
-                     "role": r.role, "season": int(r.season)} for r in hits.itertuples()]
+        hits = self.universe.filter(pl.col("_pid_norm").str.contains(nq, literal=True)
+                                    | pl.col("_name_norm").str.contains(nq, literal=True)).head(limit)
+        pitchers = [{"pitcher_id": r["pitcher_id"], "name": r["name"], "status": r["status"], "throws": r["throws"],
+                     "role": r["role"], "season": int(r["season"])} for r in hits.iter_rows(named=True)]
         return {"pitchers": pitchers, "stadiums": stadiums[:limit]}

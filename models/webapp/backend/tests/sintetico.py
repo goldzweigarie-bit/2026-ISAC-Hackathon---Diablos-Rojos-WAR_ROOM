@@ -16,7 +16,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -52,49 +52,50 @@ def make_pitchers(stadiums):
         pid += RNG.integers(1, 40)
         pitchers.append({"pitcher_id": f"pitcher_{pid:05d}", "team_2026": "FA",
                          "role": "SP" if RNG.random() < 0.3 else "RP"})
-    df = pd.DataFrame(pitchers)
-    df["throws"] = np.where(RNG.random(len(df)) < 0.7, "Right", "Left")
-    df["talent"] = RNG.normal(0, 1, len(df))
+    df = pl.DataFrame(pitchers)
+    n = df.height
+    df = df.with_columns(throws=pl.Series(np.where(RNG.random(n) < 0.7, "Right", "Left")),
+                         talent=pl.Series(RNG.normal(0, 1, n)))
     # 2025 team: most stay, some moved; FAs were on a random team in 2025
-    moved = RNG.random(len(df)) < 0.15
-    df["team_2025"] = np.where(moved | (df.team_2026 == "FA"), RNG.choice(teams, len(df)), df.team_2026)
-    return df
+    moved = RNG.random(n) < 0.15
+    t26 = df["team_2026"].to_numpy()
+    return df.with_columns(team_2025=pl.Series(np.where(moved | (t26 == "FA"), RNG.choice(teams, n), t26)))
 
 
 def make_arsenals(pitchers):
     rows = []
-    for p in pitchers.itertuples():
+    for p in pitchers.iter_rows(named=True):
         primary = "Four-Seam" if RNG.random() < 0.72 else "Sinker"
         pool = ["Slider", "Changeup", "Curveball", "Cutter", "Splitter"]
-        n_sec = RNG.integers(3, 5) if p.role == "SP" else RNG.integers(1, 3)
+        n_sec = RNG.integers(3, 5) if p["role"] == "SP" else RNG.integers(1, 3)
         secondaries = list(RNG.choice(pool, n_sec, replace=False, p=[0.34, 0.26, 0.18, 0.12, 0.10]))
         types = [primary] + secondaries
-        if p.role == "SP" and primary == "Four-Seam" and RNG.random() < 0.35:
+        if p["role"] == "SP" and primary == "Four-Seam" and RNG.random() < 0.35:
             types.append("Sinker")
         usage = RNG.dirichlet(np.ones(len(types)) * 2)
         usage[0] += 0.35
         usage /= usage.sum()
-        velo_shift = 0.9 * p.talent + RNG.normal(0, 1.2) + (0.8 if p.role == "RP" else 0)
+        velo_shift = 0.9 * p["talent"] + RNG.normal(0, 1.2) + (0.8 if p["role"] == "RP" else 0)
         for t, u in zip(types, usage):
             v, ivb, hb, spin = PITCH_TEMPLATES[t]
             rows.append({
-                "pitcher_id": p.pitcher_id, "pitch_type": t, "usage": u,
+                "pitcher_id": p["pitcher_id"], "pitch_type": t, "usage": float(u),
                 "velo": v + velo_shift + RNG.normal(0, 0.8),
-                "ivb": ivb + RNG.normal(0, 2.4) + 0.6 * p.talent * (1 if t == "Four-Seam" else -0.3),
-                "hb_arm": hb + RNG.normal(0, 2.6) + 0.4 * p.talent * np.sign(hb),
-                "spin": spin + RNG.normal(0, 160) + 60 * p.talent,
+                "ivb": ivb + RNG.normal(0, 2.4) + 0.6 * p["talent"] * (1 if t == "Four-Seam" else -0.3),
+                "hb_arm": hb + RNG.normal(0, 2.6) + 0.4 * p["talent"] * np.sign(hb),
+                "spin": spin + RNG.normal(0, 160) + 60 * p["talent"],
             })
-    return pd.DataFrame(rows)
+    return pl.DataFrame(rows)
 
 
 def release_profile(pitchers):
-    n = len(pitchers)
-    side_sign = np.where(pitchers.throws == "Right", -1.0, 1.0)  # x toward 1B from catcher view
-    return pd.DataFrame({
-        "pitcher_id": pitchers.pitcher_id,
+    n = pitchers.height
+    side_sign = np.where(pitchers["throws"].to_numpy() == "Right", -1.0, 1.0)  # x toward 1B from catcher view
+    return pl.DataFrame({
+        "pitcher_id": pitchers["pitcher_id"],
         "rel_height": RNG.normal(5.85, 0.3, n),
         "rel_side": side_sign * np.abs(RNG.normal(1.9, 0.45, n)),
-        "extension": RNG.normal(6.3, 0.35, n) + 0.15 * pitchers.talent.to_numpy(),
+        "extension": RNG.normal(6.3, 0.35, n) + 0.15 * pitchers["talent"].to_numpy(),
     })
 
 
@@ -120,32 +121,40 @@ def build_calendar(season, stadiums, mex_schedule):
         block_day += 1
         day += timedelta(days=1)
     if season == 2026:
-        for g in mex_schedule.itertuples():
-            if g.status == "Postponed":
+        for g in mex_schedule.iter_rows(named=True):
+            if g["status"] == "Postponed":
                 continue
-            games.append({"date": date.fromisoformat(g.date), "away": g.away_code, "home": g.home_code})
-    return pd.DataFrame(games).sort_values("date").reset_index(drop=True)
+            games.append({"date": date.fromisoformat(g["date"]), "away": g["away_code"], "home": g["home_code"]})
+    return pl.DataFrame(games).sort("date", maintain_order=True)
 
 
 def simulate_season(season, pitchers, arsenals, releases, stadiums, calendar):
     by_code = {s["team_code"]: s for s in stadiums}
     team_col = f"team_{season}"
-    ars = {pid: g for pid, g in arsenals.groupby("pitcher_id")}
-    rel = releases.set_index("pitcher_id")
+    ars = {}
+    for r in arsenals.iter_rows(named=True):              # pitcher → {columna: lista} de su arsenal
+        a = ars.setdefault(r["pitcher_id"], {c: [] for c in ("pitch_type", "usage", "velo", "ivb", "hb_arm", "spin")})
+        for c in a:
+            a[c].append(r[c])
+    ars = {pid: {c: np.array(v) for c, v in a.items()} for pid, a in ars.items()}
+    rel = {r["pitcher_id"]: r for r in releases.iter_rows(named=True)}
     staff = {}
-    for team, g in pitchers.groupby(team_col):
+    filas = list(pitchers.iter_rows(named=True))
+    for team in sorted({p[team_col] for p in filas}):
         if team == "FA":
             continue
-        staff[team] = {"SP": list(g[g.role == "SP"].pitcher_id), "RP": list(g[g.role == "RP"].pitcher_id)}
+        staff[team] = {rl: [p["pitcher_id"] for p in filas if p[team_col] == team and p["role"] == rl]
+                       for rl in ("SP", "RP")}
     rotation_idx = {t: 0 for t in staff}
     last_used: dict[str, list[date]] = {}
-    throws = pitchers.set_index("pitcher_id").throws
-    talent = pitchers.set_index("pitcher_id").talent
+    throws = dict(zip(pitchers["pitcher_id"], pitchers["throws"]))
+    talent = dict(zip(pitchers["pitcher_id"], pitchers["talent"]))
     batters = {t: [(f"batter_{abs(hash((t, i, season))) % 90000 + 10000:05d}", "Left" if RNG.random() < 0.38 else "Right")
                    for i in range(13)] for t in staff}
 
     chunks = []
-    for gi, game in enumerate(calendar.itertuples()):
+    for gi, g in enumerate(calendar.iter_rows(named=True)):
+        game = type("Juego", (), g)                       # para escribir game.home como antes
         park = by_code[game.home]
         rho = float(air_density(park["altitude_m"], park["typical_temp_c"] + RNG.normal(0, 2)))
         game_id = f"game_{season % 100:02d}{gi:04d}"
@@ -164,14 +173,15 @@ def simulate_season(season, pitchers, arsenals, releases, stadiums, calendar):
             for pid, n in plan:
                 last_used.setdefault(pid, []).append(game.date)
                 a = ars[pid]
-                types = RNG.choice(a.pitch_type.to_numpy(), n, p=a.usage.to_numpy())
-                prof = a.set_index("pitch_type").loc[types]
-                r = rel.loc[pid]
+                types = RNG.choice(a["pitch_type"], n, p=a["usage"])
+                idx = np.array([list(a["pitch_type"]).index(t) for t in types])
+                prof = type("Perfil", (), {c: a[c][idx] for c in ("velo", "ivb", "hb_arm", "spin")})
+                r = type("Salida", (), rel[pid])
                 arm = -1.0 if throws[pid] == "Right" else 1.0  # arm side in x for this pitcher
-                velo = prof.velo.to_numpy() + RNG.normal(0, 0.9, n)
-                ivb_sl = prof.ivb.to_numpy() + RNG.normal(0, 1.4, n)
-                hb_sl = prof.hb_arm.to_numpy() + RNG.normal(0, 1.5, n)
-                spin = prof.spin.to_numpy() + RNG.normal(0, 70, n)
+                velo = prof.velo + RNG.normal(0, 0.9, n)
+                ivb_sl = prof.ivb + RNG.normal(0, 1.4, n)
+                hb_sl = prof.hb_arm + RNG.normal(0, 1.5, n)
+                spin = prof.spin + RNG.normal(0, 70, n)
                 t_ref = 0.372 * 92 / velo
                 k = rho / RHO_SL
                 ax_mag = arm * hb_sl / 12 * 2 / t_ref ** 2 * k
@@ -217,7 +227,7 @@ def simulate_season(season, pitchers, arsenals, releases, stadiums, calendar):
                 gb = in_play & (RNG.random(n) < np.clip(0.44 - 0.012 * ivb_obs, 0.2, 0.7))
                 hit_type = np.where(in_play, np.where(gb, "GroundBall", np.where(RNG.random(n) < 0.5, "FlyBall", "LineDrive")), "")
                 exit_speed = np.where(in_play, RNG.normal(88, 10, n) - 1.5 * q, np.nan)
-                chunk = pd.DataFrame({
+                chunk = columnas(n, {
                     "year": season, "Date": game.date.isoformat(), "Stadium": park["venue_name"],
                     "PitchUID": [f"{game_id}-{half}-{pid}-{i}" for i in range(n)],
                     "game_anon_id": game_id, "pitcher_anon_id": pid, "Pitcher": pid,
@@ -243,10 +253,16 @@ def simulate_season(season, pitchers, arsenals, releases, stadiums, calendar):
                 })
                 chunks.append(chunk)
                 inning = min(inning + max(1, n // 16), 9)
-    return pd.concat(chunks, ignore_index=True)
+    return pl.concat(chunks, how="vertical_relaxed", rechunk=True)
 
 
 Y_PLATE = 17 / 12
+
+
+def columnas(n: int, datos: dict) -> pl.DataFrame:
+    """Como un DataFrame de pandas: los valores sueltos (escalares) se repiten en los n renglones; NaN → vacío."""
+    return pl.DataFrame({c: (v if isinstance(v, (list, np.ndarray)) else [v] * n) for c, v in datos.items()},
+                        nan_to_null=True)
 
 
 def altitude_bucket(alt):
@@ -258,16 +274,15 @@ def altitude_bucket(alt):
     return "No Altitude"
 
 
-def generar(seasons=(2025, 2026)) -> tuple[pd.DataFrame, pd.DataFrame]:
+def generar(seasons=(2025, 2026)) -> tuple[pl.DataFrame, pl.DataFrame]:
     """(pitcheos con columnas del API 1, roster 2026). Determinista: misma semilla, mismos datos."""
     stadiums = json.loads((DATA / "reference" / "stadiums.json").read_text(encoding="utf-8"))["stadiums"]
-    mex = pd.read_csv(DATA / "schedule" / "2026.csv")
+    mex = pl.read_csv(DATA / "schedule" / "2026.csv", schema_overrides={"date": pl.String})
     pitchers = make_pitchers(stadiums)
     arsenals = make_arsenals(pitchers)
     releases = release_profile(pitchers)
     frames = [simulate_season(s, pitchers, arsenals, releases, stadiums, build_calendar(s, stadiums, mex))
               for s in seasons]
-    roster = pitchers.rename(columns={"team_2026": "team_code"})[["pitcher_id", "team_code", "role"]].copy()
-    roster.insert(1, "name", roster.pitcher_id)
-    roster["season"] = 2026
-    return pd.concat(frames, ignore_index=True), roster
+    roster = pitchers.select("pitcher_id", pl.col("pitcher_id").alias("name"), pl.col("team_2026").alias("team_code"),
+                             "role", season=pl.lit(2026))
+    return pl.concat(frames, how="vertical_relaxed", rechunk=True), roster
