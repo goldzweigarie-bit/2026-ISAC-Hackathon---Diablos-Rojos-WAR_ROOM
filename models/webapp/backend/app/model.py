@@ -7,7 +7,7 @@ encabezado de la app deja de decir "Modelo provisional").
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 FEATURE_COLUMNS = [
     "pitch_type", "throws", "rel_speed", "plate_speed", "spin_rate", "spin_axis", "extension", "rel_height",
@@ -28,7 +28,7 @@ class PlaceholderStuffModel:
 
     name = "placeholder"
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def predict(self, X: pl.DataFrame) -> np.ndarray:
         pt = X["pitch_type"].to_numpy()
         velo = X["plate_speed"].to_numpy()
         ivb = X["ivb"].to_numpy()
@@ -66,7 +66,7 @@ def stuff_plus(raw: np.ndarray, weights: np.ndarray, groups: np.ndarray) -> np.n
     """100 + 10 z within each group (park x season), weighted by pitch counts."""
     raw = np.asarray(raw, dtype=float)
     out = np.full(len(raw), np.nan)
-    for g in pd.unique(groups):
+    for g in dict.fromkeys(groups):                       # cada grupo distinto, en orden de aparición
         m = groups == g
         w = weights[m]
         mu = np.average(raw[m], weights=w)

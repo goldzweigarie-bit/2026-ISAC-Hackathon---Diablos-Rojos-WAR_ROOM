@@ -125,7 +125,7 @@ def test_datos_anonimizados_como_el_api1_real(tmp_path):
     from conftest import DATA_PRUEBA, PITCHEOS
     from fastapi.testclient import TestClient
 
-    anon = PITCHEOS.drop(columns=["Date", "Stadium", "PitcherTeam", "BatterTeam", "Pitcher"])
+    anon = PITCHEOS.drop(["Date", "Stadium", "PitcherTeam", "BatterTeam", "Pitcher"])
     for carpeta in ("reference", "schedule"):
         shutil.copytree(DATA_PRUEBA / carpeta, tmp_path / carpeta)
 
