@@ -1,0 +1,15 @@
+# Instalar con:  python3 -m pip install -r requirements.txt
+# No usa pandas. El pickle original se convierte UNA vez a Parquet con convertir_pickle.py
+# (ese script es el único que pide pandas, y solo para esa corrida).
+
+# Servidor
+polars>=1.20         # tablas y formato Parquet
+fastapi>=0.115
+uvicorn[standard]>=0.30
+
+# Cliente (cliente.py)
+requests>=2.31
+
+# Pruebas (test_api.py)
+pytest>=8
+httpx>=0.27          # lo usa el TestClient de FastAPI
