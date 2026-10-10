@@ -22,21 +22,7 @@ La tabla lleva **un renglón por pitcher × temporada × tipo de pitcheo**.
 
 ### Cómo sale del notebook
 
-La tabla `por_pitcher_tipo` del paso 8a ya tiene casi todo. Solo hay que agregar `'stuff_plus_media'` a la lista `COLS_PLUS` de ese paso: la columna ya se calcula por pitcheo en el paso 7. Al final del notebook:
-
-```python
-from cliente import ClienteAPI2
-api2 = ClienteAPI2("http://localhost:8001", "LLAVE_DE_ESCRITURA")
-
-tabla = (por_pitcher_tipo.reset_index()
-         [["pitcher_anon_id", "year", "tipo", "pitcheos",
-           "stuff_plus_nivel_mar", "stuff_plus_media", "stuff_plus_cdmx"]])
-api2.subir("stuff_plus_por_pitcher_tipo", tabla, modelo="stuff_plus", version="v1")
-```
-
-`subir()` acepta la tabla en pandas (como está hoy el notebook) o en Polars. Si el notebook pasa a Polars, es el mismo `select` sin `reset_index()`.
-
-Luego, en la web app: `POST http://localhost:8002/api/admin/reload` (o reiniciar el traductor).
+Ya está hecho: el **Paso 9** de `notebooks/03_model_stuff_plus.ipynb` arma esta tabla desde `por_pitcher_tipo` (paso 8a), la sube con `ClienteAPI2` y recarga la web app. Solo hay que tener todo prendido (`bash apis/iniciar_todo.sh`) y correr el notebook completo.
 
 ## Tabla `validacion` (opcional: página de Metodología)
 
@@ -48,6 +34,12 @@ Luego, en la web app: `POST http://localhost:8002/api/admin/reload` (o reiniciar
 | `tipo` | `metrica` o `submodelo` (opcional; por defecto `metrica`) |
 | `objetivo`, `metrica` | Solo para `tipo = submodelo`, p. ej. `whiff` y `log loss` |
 
-## BayesBall
+## BayesBall (pendiente de definir)
 
-Todavía no tiene lugar en la web app. Cuando sepamos qué predice, se agrega aquí su tabla y la pantalla donde se muestra.
+Ya se puede **subir** al API 2 igual que Stuff+:
+
+```python
+api2.subir("bayesball_<nombre>", tabla, modelo="bayesball", version="v1")
+```
+
+Para que la web app lo **muestre** falta acordar qué predice y la forma de su tabla: llaves (`pitcher_anon_id`, `year`, ¿`tipo`?), columnas y en qué pantalla va. Con eso se agrega aquí y se conecta en el traductor (`backend/app/store.py` y `services.py`).

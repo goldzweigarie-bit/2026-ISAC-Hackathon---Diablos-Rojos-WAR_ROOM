@@ -1,4 +1,8 @@
+# ⚠️ El repo es PÚBLICO. Datos y llaves NUNCA se suben.
 # Datos — NO subir nunca (términos de la competencia)
+*.pkl
+*.npz
+resultados_api2/
 data/raw/
 data/processed/
 *.csv
@@ -32,3 +36,7 @@ venv/
 *.log
 *.out
 *.synctex.gz
+
+# Llaves y archivos locales de los APIs y la web app
+.env
+logs/

@@ -23,7 +23,9 @@ Esta carpeta tiene dos piezas:
 
 ## Correrlo
 
-Necesitas Python 3.10 o superior. Node no hace falta para la demo.
+**Lo normal:** desde la raíz del repo, `bash apis/instalar.sh` (una vez) y `bash apis/iniciar_todo.sh`, que prende los dos APIs y esta app juntos. Ver [`apis/README.md`](../../apis/README.md).
+
+A mano (necesitas Python 3.10 o superior; Node no hace falta para la demo):
 
 ```bash
 cd models/webapp/backend
@@ -38,8 +40,8 @@ Abre **http://localhost:8002**. El API 1 y el API 2 tienen que estar prendidos, 
 
 | Variable | Valor |
 |---|---|
-| `API1_URL` / `API1_KEY` | `http://localhost:8000` y la misma llave que `api/.env` |
-| `API2_URL` / `API2_KEY` | `http://localhost:8001` y la llave de **lectura** del API 2 (`API_KEY` de `api2/.env`), no la de escritura |
+| `API1_URL` / `API1_KEY` | `http://localhost:8000` y la misma llave que `apis/api/.env` |
+| `API2_URL` / `API2_KEY` | `http://localhost:8001` y la llave de **lectura** del API 2 (`API_KEY` de `apis/api2/.env`), no la de escritura |
 | `PAPER_URL` | opcional: link al paper para la página de Metodología |
 
 El `.env` nunca va a GitHub, porque ya está en `.gitignore`.

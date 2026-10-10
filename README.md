@@ -13,6 +13,15 @@ Sistema de evaluación pitch-by-pitch que estima la calidad esperada de cada lan
 | Mikel Loret | @loretmikel |
 | Meyer Hemilson | @Meyer03 |
 
+## Correr todo (APIs + web app)
+
+```bash
+bash apis/instalar.sh        # una vez por compu (datos en ~/Desktop/hackathon, FUERA del repo)
+bash apis/iniciar_todo.sh    # prende API 1, API 2 y la web app en http://localhost:8002
+```
+
+Cada modelo sube sus resultados al API 2 y la web app los toma de ahí. Detalle en [`apis/README.md`](apis/README.md). **El repo es público: datos y llaves nunca se suben.**
+
 ## Los 5 Entregables y dónde vive cada uno
 
 | # | Entregable | Carpeta | Estado |
@@ -46,6 +55,8 @@ stuff-plus-diablos/
 │   ├── models/                ← entrenamiento Stuff+/Location+/Pitching+
 │   ├── evaluation/            ← métricas, calibración, SHAP
 │   └── visualization/         ← mapas de movimiento, gráficas de informe
+├── apis/                      ← API 1 (datos), API 2 (resultados) y scripts para correr todo
+├── models/webapp/             ← traductor + web app (React ya compilada)
 ├── dashboard/
 │   ├── app.py                 ← Streamlit: simulador Stuff+
 │   └── components/            ← inputs del coach, comparador altitud, mapa de movimiento
