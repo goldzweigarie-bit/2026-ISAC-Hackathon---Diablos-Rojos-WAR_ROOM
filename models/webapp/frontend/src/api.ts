@@ -36,6 +36,7 @@ export type PitcherHeader = {
   pitcher_id: string; name: string; season: number; throws: string; role: string; team_code: string | null;
   team_name: string | null; status: string | null; n_pitches: number; games: number | null; is_ours: boolean;
   seasons: number[]; stuff_neutral?: number; stuff_home?: number; stuff_here?: number; stuff_sea?: number;
+  bayes_available?: boolean;
 };
 
 export type PathPoint = { y: number; x: number; z: number };
@@ -48,7 +49,7 @@ export type Projection = { stadium: Stadium; pitcher: PitcherHeader; aim: { x: n
 
 export type Profile = {
   pitcher: PitcherHeader;
-  arsenal: { pitch_type: string; n: number; usage: number; rel_speed: number; spin_rate: number; extension: number; ivb_sea: number; hb_sea: number; whiff_pct: number | null; stuff_neutral: number; stuff_best_park: number; stuff_worst_park: number }[];
+  arsenal: { pitch_type: string; n: number; usage: number; rel_speed: number; spin_rate: number; extension: number; ivb_sea: number; hb_sea: number; whiff_pct: number | null; stuff_neutral: number; stuff_best_park: number; stuff_worst_park: number; bayes_whiff_sea: number | null; bayes_whiff_home: number | null }[];
   by_park: { stadium_id: string; venue_name: string; team_code: string; altitude_m: number; stuff_plus: number }[];
   workload: { date: string; pitches: number; stadium_id: string | null }[];
 };
@@ -83,9 +84,12 @@ export type SearchResult = {
   stadiums: { id: string; venue_name: string; city: string; team_name: string; altitude_m: number }[];
 };
 
+export type Validation = null | { metrics?: { name: string; value: number | string; split?: string }[]; submodels?: { name: string; target: string; metric: string; value: number | string }[]; notes?: string };
+
 export type Methodology = {
   model: string;
-  validation: null | { metrics?: { name: string; value: number | string; split?: string }[]; submodels?: { name: string; target: string; metric: string; value: number | string }[]; notes?: string };
+  validation: Validation;
+  bayesball?: { available: boolean; name: string | null; uploaded?: string | null; validation: Validation };
   altitude_study: { grouped_by: string; rows: { group: string; n: number; altitude_m: number; rho_ratio: number; spin_accel_ratio: number; spin_accel_se: number; drag_ratio: number }[]; elasticity_spin_vs_density: number | null };
   paper_url: string | null;
   data: { seasons: number[]; rows: number; capabilities: Record<string, boolean>; synthetic: boolean; source_files: string[] };

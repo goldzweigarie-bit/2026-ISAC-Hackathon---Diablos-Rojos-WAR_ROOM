@@ -76,6 +76,10 @@ class Store:
         self.validation = self._validation(self.fuentes.tabla_api2(cfg["tabla_validacion"]))
         self.api2_meta = self.fuentes.metadatos_api2()
         self.model = self._model_info()
+        # BayesBall (opcional): P(whiff) por pitcher × tipo en los 3 niveles de altitud, y sus métricas
+        self.bayes = self._bayes_por_pitcheo(self.fuentes.tabla_api2(cfg["tabla_bayesball"]))
+        self.bayes_validation = self._validation(self.fuentes.tabla_api2(cfg["tabla_bayesball_validacion"]))
+        self.bayes_info = self._info_tabla(cfg["tabla_bayesball"], self.bayes is not None)
         self.levels_interpolated: list[str] = []
         self.schedules: dict[int, pl.DataFrame] = {}
         for f in sorted((self.data_dir / "schedule").glob("*.csv")):
@@ -203,17 +207,48 @@ class Store:
         return out
 
     def _validation(self, tabla: pl.DataFrame | None):
-        """Tabla 'validacion' del API 2 (columnas: nombre, valor y opcionalmente split, tipo) → página Metodología."""
+        """Tabla de validación del API 2 (columnas: nombre, valor y opcionalmente split, tipo) → página Metodología.
+        tipo = 'metrica' (por defecto), 'submodelo' o 'nota' (texto libre en `nombre`, se muestra abajo)."""
         if tabla is None or not {"nombre", "valor"} <= set(tabla.columns):
             return None
-        metrics, subs = [], []
+        metrics, subs, notas = [], [], []
         for r in tabla.iter_rows(named=True):
-            if r.get("tipo") == "submodelo":
+            if r.get("tipo") == "nota":
+                notas.append(str(r["nombre"]))
+            elif r.get("tipo") == "submodelo":
                 subs.append({"name": r["nombre"], "target": r.get("objetivo") or "", "metric": r.get("metrica") or "",
                              "value": r["valor"]})
             else:
                 metrics.append({"name": r["nombre"], "value": r["valor"], "split": r.get("split")})
-        return {"metrics": metrics, "submodels": subs, "notes": "Métricas subidas por el modelo al API 2."}
+        return {"metrics": metrics, "submodels": subs,
+                "notes": " ".join(notas) or "Métricas subidas por el modelo al API 2."}
+
+    def _bayes_por_pitcheo(self, tabla: pl.DataFrame | None) -> dict | None:
+        """Tabla de BayesBall → {(temporada, pitcher, tipo): {"No Altitude": p, "Medium Altitude": p, ...}}.
+        Las columnas que no vengan quedan vacías; si no hay tabla (o le falta la de nivel del mar), None."""
+        if tabla is None:
+            return None
+        cfg = self.config["api2"]["columnas"]
+        cols = {nivel: c for nivel, c in cfg["p_whiff_por_nivel"].items() if c in tabla.columns}
+        if "No Altitude" not in cols:
+            log.warning("La tabla de BayesBall no trae %s; se ignora. Columnas: %s",
+                        cfg["p_whiff_por_nivel"]["No Altitude"], tabla.columns)
+            return None
+        keys = ["season", "pitcher_id", "pitch_type"]
+        t = (tabla.rename({cfg["pitcher"]: "pitcher_id", cfg["temporada"]: "season", cfg["tipo"]: "pitch_type"})
+                  .with_columns(pl.col("pitcher_id").cast(pl.String),
+                                pl.col("season").cast(pl.Float64, strict=False).cast(pl.Int64, strict=False),
+                                pl.col("pitch_type").cast(pl.String).replace({"Sweeper": "Slider"}),
+                                *[pl.col(c).cast(pl.Float64, strict=False).fill_nan(None) for c in cols.values()])
+                  .group_by(keys).agg([pl.col(c).mean() for c in cols.values()]))
+        return {(r["season"], r["pitcher_id"], r["pitch_type"]): {nivel: r[c] for nivel, c in cols.items()}
+                for r in t.iter_rows(named=True)}
+
+    def _info_tabla(self, tabla: str, hay: bool) -> dict:
+        """Quién subió una tabla al API 2, su versión y cuándo (para mostrarlo en la app)."""
+        m = self.api2_meta.get(tabla, {}) if hay else {}
+        return {"available": hay, "name": f"{m.get('modelo', '')} {m.get('version') or ''}".strip() or None,
+                "uploaded": m.get("subido")}
 
     def _model_info(self) -> dict:
         """Qué Stuff+ está sirviendo la app: el del modelo (API 2) o el provisional."""

@@ -46,7 +46,8 @@ def meta():
         "model": store.model["name"], "synthetic": False,
         "capabilities": store.meta.get("capabilities", {}),
         "has_rosters": store.rosters is not None and len(store.rosters) > 0,
-        "sources": {**store.fuentes.estado, "stuff_plus": store.model["source"]},
+        "sources": {**store.fuentes.estado, "stuff_plus": store.model["source"],
+                    "bayesball": "api2" if store.bayes is not None else "no_disponible"},
     }
 
 
@@ -118,6 +119,7 @@ def methodology():
         "model": store.model["name"], "model_info": store.model,
         "altitude_levels": {s["id"]: store.altitude_level(s["id"]) for s in store.stadiums},
         "levels_interpolated": store.levels_interpolated,
+        "bayesball": {**store.bayes_info, "validation": store.bayes_validation},
         "validation": store.validation, "altitude_study": store.altitude_study,
         "paper_url": os.environ.get("PAPER_URL") or store.config.get("paper_url") or None,
         "data": {k: store.meta.get(k) for k in ("seasons", "rows", "capabilities", "synthetic", "source_files")},
@@ -129,7 +131,8 @@ def methodology():
 def reload_data():
     """Vuelve a pedir todo a los APIs (p. ej. después de que un modelo subió una versión nueva)."""
     store.load()
-    return {"ok": True, "seasons": store.seasons, "model": store.model, "sources": store.fuentes.estado}
+    return {"ok": True, "seasons": store.seasons, "model": store.model, "bayesball": store.bayes_info,
+            "sources": store.fuentes.estado}
 
 
 # ------------------------------------------------------------------------------ built frontend (optional)

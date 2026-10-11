@@ -31,7 +31,8 @@ PITCHEOS, ROSTER = sintetico.generar()
 ROSTER.write_csv(DATA_PRUEBA / "rosters" / "2026.csv")
 
 # Lo que "tiene" el API 2 en cada prueba. None = la tabla todavía no existe.
-API2: dict = {"stuff_plus_por_pitcher_tipo": None, "validacion": None}
+API2: dict = {"stuff_plus_por_pitcher_tipo": None, "validacion": None,
+              "bayesball_por_pitcher_tipo": None, "bayesball_validacion": None}
 
 
 def tabla_stuff_falsa(con_media: bool = True) -> pl.DataFrame:
@@ -43,6 +44,15 @@ def tabla_stuff_falsa(con_media: bool = True) -> pl.DataFrame:
     ruido = pl.Series(np.random.default_rng(1).normal(0, 1, t.height))
     t = t.with_columns(stuff_plus_nivel_mar=100 + ruido, stuff_plus_cdmx=110 + ruido)
     return t.with_columns(stuff_plus_media=105 + ruido) if con_media else t
+
+
+def tabla_bayes_falsa() -> pl.DataFrame:
+    """Como la que sube el paso final de BayesBall: P(whiff) por pitcher × temporada × tipo en 3 niveles.
+    Valores fijos para poder comprobarlos: 0.30 / 0.29 / 0.27."""
+    keys = ["pitcher_anon_id", "year", "tipo"]
+    t = (PITCHEOS.with_columns(tipo=pl.col("AutoPitchType").replace({"Sweeper": "Slider"}))
+         .group_by(keys).len(name="pitcheos").sort(keys))
+    return t.with_columns(p_whiff_nivel_mar=pl.lit(0.30), p_whiff_media=pl.lit(0.29), p_whiff_cdmx=pl.lit(0.27))
 
 
 def _pitcheos(self):

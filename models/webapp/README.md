@@ -17,8 +17,8 @@ Esta carpeta tiene dos piezas:
 
 - **Inicio**: mapa de los 20 parques, buscador, calendario de los Diablos, el diablo (bullpen para la siguiente serie) y agentes libres.
 - **Parque**: zona de strike vista desde el cátcher. Muestra dónde cae cada pitcheo del pitcher elegido a nivel del mar contra este parque con la misma salida. También tiene la gráfica de movimiento y la corona: el ranking de pitchers por Stuff+ en ese parque.
-- **Pitcher**: arsenal, Stuff+ en los 20 parques y cargas de trabajo.
-- **Agentes libres** y **Metodología**: la segunda incluye el estudio de altitud, las métricas de validación y el link al paper.
+- **Pitcher**: arsenal, Stuff+ en los 20 parques y cargas de trabajo. Si BayesBall ya subió su tabla, el arsenal agrega su P(whiff) a nivel del mar → Harp Helú.
+- **Agentes libres** y **Metodología**: la segunda incluye el estudio de altitud, las métricas de validación de Stuff+ y de BayesBall, y el link al paper.
 - Botón ES / EN en todas las pantallas.
 
 ## Correrlo
@@ -56,7 +56,7 @@ El `.env` nunca va a GitHub, porque ya está en `.gitignore`.
 
 ## Cómo se conecta el modelo
 
-El traductor busca en el API 2 la tabla **`stuff_plus_por_pitcher_tipo`**. El formato exacto está en **[CONTRATO_API2.md](CONTRATO_API2.md)**. En resumen:
+El traductor busca en el API 2 la tabla **`stuff_plus_por_pitcher_tipo`** (y, si existe, **`bayesball_por_pitcher_tipo`**). El formato exacto está en **[CONTRATO_API2.md](CONTRATO_API2.md)**. En resumen:
 - Un renglón por pitcher × temporada × tipo de pitcheo.
 - El Stuff+ va en tres niveles de altitud: `stuff_plus_nivel_mar`, `stuff_plus_media` y `stuff_plus_cdmx`.
 
@@ -112,9 +112,10 @@ Están en el orden en que fluyen los datos:
 cd models/webapp/backend && python3 -m pytest
 ```
 
-Las 11 pruebas (unos 10 s) simulan el API 1 y el API 2 con datos sintéticos (`tests/sintetico.py`), así que no necesitan que haya nada prendido. Cubren cuatro casos:
+Las 12 pruebas (unos 10 s) simulan el API 1 y el API 2 con datos sintéticos (`tests/sintetico.py`), así que no necesitan que haya nada prendido. Cubren cinco casos:
 - API 2 vacío.
 - API 2 con la tabla del modelo.
 - La tabla sin la columna `stuff_plus_media`.
+- BayesBall con y sin su tabla.
 - Datos anonimizados como los reales.
 

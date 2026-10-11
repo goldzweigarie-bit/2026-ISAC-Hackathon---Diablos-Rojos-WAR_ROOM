@@ -49,7 +49,14 @@
         "No Altitude": "stuff_plus_nivel_mar",
         "Medium Altitude": "stuff_plus_media",
         "Extreme Altitude": "stuff_plus_cdmx"
+      },
+      "p_whiff_por_nivel": {
+        "No Altitude": "p_whiff_nivel_mar",
+        "Medium Altitude": "p_whiff_media",
+        "Extreme Altitude": "p_whiff_cdmx"
       }
-    }
+    },
+    "tabla_bayesball": "bayesball_por_pitcher_tipo",
+    "tabla_bayesball_validacion": "bayesball_validacion"
   }
 }

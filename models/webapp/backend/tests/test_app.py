@@ -67,7 +67,7 @@ def test_bullpen_and_free_agents(client):
 
 
 # ------------------------------------------------------------------ traductor: de dónde sale el Stuff+
-from conftest import API2, tabla_stuff_falsa  # noqa: E402
+from conftest import API2, tabla_bayes_falsa, tabla_stuff_falsa  # noqa: E402
 
 
 def _recargar(client, tabla):
@@ -153,3 +153,34 @@ def test_datos_anonimizados_como_el_api1_real(tmp_path):
         assert study["grouped_by"] == "altitude_category" and len(study["rows"]) == 3
     finally:
         main.store = original
+
+
+def test_bayesball_en_perfil_y_metodologia(client):
+    # sin tabla de BayesBall: la columna viene vacía y la app lo sabe
+    API2["bayesball_por_pitcher_tipo"] = None
+    API2["bayesball_validacion"] = None
+    _recargar(client, tabla_stuff_falsa())
+    pid = client.get("/api/stadiums/harp-helu/leaderboard?limit=1").json()["rows"][0]["pitcher_id"]
+    prof = client.get(f"/api/pitchers/{pid}").json()
+    assert prof["pitcher"]["bayes_available"] is False
+    assert all(a["bayes_whiff_sea"] is None for a in prof["arsenal"])
+    assert client.get("/api/methodology").json()["bayesball"]["available"] is False
+
+    # con tabla: nivel del mar 30 %, Harp Helú (Extreme) 27 %
+    import polars as pl
+    API2["bayesball_por_pitcher_tipo"] = tabla_bayes_falsa()
+    API2["bayesball_validacion"] = pl.DataFrame({"nombre": ["BayesBall · ROC AUC (test)", "Escala real de whiff."],
+                                                 "valor": [0.62, None], "split": ["20 % test", ""],
+                                                 "tipo": ["metrica", "nota"]})
+    out = client.post("/api/admin/reload").json()
+    assert out["bayesball"]["available"] is True
+    prof = client.get(f"/api/pitchers/{pid}").json()
+    assert prof["pitcher"]["bayes_available"] is True
+    assert {a["bayes_whiff_sea"] for a in prof["arsenal"]} == {30.0}
+    assert {a["bayes_whiff_home"] for a in prof["arsenal"]} == {27.0}
+    meth = client.get("/api/methodology").json()["bayesball"]
+    assert meth["available"] and [m["value"] for m in meth["validation"]["metrics"]] == [0.62]
+    assert meth["validation"]["notes"] == "Escala real de whiff."
+    assert client.get("/api/meta").json()["sources"]["bayesball"] == "api2"
+    API2["bayesball_por_pitcher_tipo"] = None
+    API2["bayesball_validacion"] = None

@@ -20,6 +20,7 @@ export default function PitcherPage() {
   const center = p.stuff_neutral ?? 100;
   const spread = Math.max(1, ...data.by_park.map((b) => Math.abs(b.stuff_plus - center)));
   const maxW = Math.max(1, ...data.workload.map((w) => w.pitches));
+  const bayes = !!p.bayes_available;
 
   return (
     <main className="page">
@@ -56,6 +57,7 @@ export default function PitcherPage() {
             <thead><tr>
               <th></th><th className="r">{t("usage")}</th><th className="r">{t("velo")}</th><th className="r">{t("spin")}</th>
               <th className="r">IVB</th><th className="r">HB</th><th className="r">{t("whiff")}</th>
+              {bayes && <th className="r">{t("bayesWhiff")}<br /><span className="faint tiny">{t("bayesWhiffSub")}</span></th>}
               <th className="r">Stuff+ {t("neutral")}</th><th className="r">{t("bestPark")}</th><th className="r">{t("worstPark")}</th>
             </tr></thead>
             <tbody>
@@ -68,6 +70,16 @@ export default function PitcherPage() {
                   <td className="r num">{fmt(a.ivb_sea)}</td>
                   <td className="r num">{fmt(a.hb_sea)}</td>
                   <td className="r num">{a.whiff_pct == null ? "–" : `${fmt(a.whiff_pct, 0)}%`}</td>
+                  {bayes && (
+                    <td className="r num">
+                      {a.bayes_whiff_sea == null ? "–" : (
+                        <>
+                          {fmt(a.bayes_whiff_sea)}% <span className="faint">→</span>{" "}
+                          <span style={{ color: (a.bayes_whiff_home ?? a.bayes_whiff_sea) < a.bayes_whiff_sea ? "var(--bad)" : "var(--good)", fontWeight: 700 }}>{fmt(a.bayes_whiff_home)}%</span>
+                        </>
+                      )}
+                    </td>
+                  )}
                   <td className="r num" style={{ color: stuffColor(a.stuff_neutral), fontWeight: 700 }}>{fmt(a.stuff_neutral)}</td>
                   <td className="r num">{fmt(a.stuff_best_park)}</td>
                   <td className="r num">{fmt(a.stuff_worst_park)}</td>
@@ -75,7 +87,7 @@ export default function PitcherPage() {
               ))}
             </tbody>
           </table>
-          <p className="faint tiny">IVB / HB: {t("seaLevel")}, in</p>
+          <p className="faint tiny">IVB / HB: {t("seaLevel")}, in{bayes ? ` · ${t("bayesFoot")}` : ""}</p>
         </div>
       </section>
 

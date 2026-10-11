@@ -72,7 +72,13 @@ El Paso 9 necesita `requests` en el Python del notebook (Polars ya lo usa el not
 
 ### BayesBall
 
-Vive en `notebooks/03_model_stuff_plus.ipynb`: P(whiff) con resolvabilidad bayesiana y la penalización perceptual en altitud. Se sube igual: `ClienteAPI2.subir("bayesball_<nombre>", tabla, modelo="bayesball", version="v1")`. Para que la web app lo **muestre**, hay que acordar su tabla en [`CONTRATO_API2.md`](../models/webapp/CONTRATO_API2.md) y conectarla en el traductor.
+1. Con todo prendido, corre `notebooks/03_model_stuff_plus.ipynb` completo (menos de un minuto de entrenamiento).
+2. La **sección 7** sube dos tablas al API 2:
+   - `bayesball_por_pitcher_tipo` (la P(whiff) de cada pitcher × temporada × tipo en los 3 niveles de altitud).
+   - `bayesball_validacion` (AUC, coeficiente de la interacción y penalización perceptual).
+3. Al final recarga la web app: el perfil de cada pitcher muestra su P(whiff) a nivel del mar → Harp Helú, y Metodología muestra las métricas.
+
+Para una versión nueva, cambia `VERSION_BAYES` en la sección 7. Necesita scikit-learn y `requests` en el Python del notebook.
 
 El formato exacto de lo que la web app espera de cada modelo está en [`CONTRATO_API2.md`](../models/webapp/CONTRATO_API2.md).
 

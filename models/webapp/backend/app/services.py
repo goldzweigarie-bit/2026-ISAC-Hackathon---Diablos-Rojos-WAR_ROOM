@@ -196,12 +196,17 @@ def pitcher_profile(store: Store, pid: str, season: int | None):
         stuff_neutral=pl.col("stuff_plus").mean(), best=pl.col("stuff_plus").max(), worst=pl.col("stuff_plus").min()),
         "pitch_type")
     sea = _por(pr.filter(pl.col("stadium_id") == SEA_LEVEL_ID), "pitch_type")
+    bayes = store.bayes or {}
+    nivel_casa = store.altitude_level(store.config["home_stadium_id"])
     arsenal = []
     for pt in pr.sort("n", descending=True, maintain_order=True)["pitch_type"].unique(maintain_order=True):
         a, nt, sp = ars[pt], neutral.get(pt, {}), sea.get(pt, {})
         swings = a.get("swings")
+        b = bayes.get((season, pid, pt), {})
+        pct = lambda v: _f(100 * v) if v is not None else None  # noqa: E731
         arsenal.append({
             "pitch_type": pt, "n": int(a["n"]), "usage": _f(100 * a["usage"]), "rel_speed": _f(a["rel_speed"]),
+            "bayes_whiff_sea": pct(b.get("No Altitude")), "bayes_whiff_home": pct(b.get(nivel_casa)),
             "spin_rate": _f(a["spin_rate"], 0), "extension": _f(a["extension"], 2),
             "ivb_sea": _f(sp.get("ivb")), "hb_sea": _f(sp.get("hb")),
             "whiff_pct": _f(100 * a["whiffs"] / swings) if swings else None,
@@ -225,6 +230,7 @@ def pitcher_profile(store: Store, pid: str, season: int | None):
                               .sort("date", maintain_order=True))
         workload = [{"date": r["date"].isoformat(), "pitches": int(r["pitches"]), "stadium_id": r.get("stadium_id")}
                     for r in a.iter_rows(named=True)]
+    head["bayes_available"] = store.bayes is not None
     return {"pitcher": head, "arsenal": arsenal, "by_park": by_park, "workload": workload[-30:]}
 
 

@@ -1,6 +1,11 @@
 # Contrato: qué tiene que subir el modelo al API 2
 
-Este archivo es el acuerdo entre el **modelo** (Stuff+) y el **traductor** (la web app). Si el modelo sube esta tabla, la web app la usa sin cambiar código. Mientras no exista, la web app muestra un Stuff+ provisional y lo indica en el encabezado.
+Este archivo es el acuerdo entre los **modelos** (Stuff+ y BayesBall) y el **traductor** (la web app). Si un modelo sube su tabla con esta forma, la web app la usa sin cambiar código.
+
+| Modelo | Tablas | Si no existen |
+|---|---|---|
+| Stuff+ (`notebooks/06_StuffPlus.ipynb`, Paso 9) | `stuff_plus_por_pitcher_tipo`, `validacion` | La app usa un Stuff+ provisional y lo dice en el encabezado |
+| BayesBall (`notebooks/03_model_stuff_plus.ipynb`, sección 7) | `bayesball_por_pitcher_tipo`, `bayesball_validacion` | La columna de BayesBall no aparece y Metodología dice que está pendiente |
 
 ## Tabla `stuff_plus_por_pitcher_tipo` (obligatoria)
 
@@ -31,17 +36,31 @@ Ya está hecho: el **Paso 9** de `notebooks/06_StuffPlus.ipynb` arma esta tabla 
 | `nombre` | `Split-half r (Stuff+)` |
 | `valor` | `0.82` |
 | `split` | `juegos pares vs impares` (opcional) |
-| `tipo` | `metrica` o `submodelo` (opcional; por defecto `metrica`) |
+| `tipo` | `metrica`, `submodelo` o `nota` (opcional; por defecto `metrica`). Una `nota` es texto libre en `nombre` y se muestra abajo de la tabla |
 | `objetivo`, `metrica` | Solo para `tipo = submodelo`, p. ej. `whiff` y `log loss` |
 
-## BayesBall (pendiente de definir)
+## Tabla `bayesball_por_pitcher_tipo` (BayesBall)
 
-Es `notebooks/03_model_stuff_plus.ipynb` (+ `src/models/bayesian_resolvability.py`): una regresión logística de P(whiff) con un *resolvability score* bayesiano, y la "penalización perceptual" del slider en altitud extrema.
+Es `notebooks/03_model_stuff_plus.ipynb` (+ `src/models/bayesian_resolvability.py`): una regresión logística de P(whiff) con un *resolvability score* bayesiano. Un renglón por **pitcher × temporada × tipo de pitcheo**, con las mismas llaves que Stuff+:
 
-Ya se puede **subir** al API 2 igual que Stuff+:
+| Columna | Tipo | Ejemplo | Notas |
+|---|---|---|---|
+| `pitcher_anon_id`, `year`, `tipo` | | | Igual que en la tabla de Stuff+ |
+| `p_whiff_nivel_mar` | número 0-1 | `0.156` | P(whiff) por pitcheo si se lanzara en "No Altitude" (obligatoria) |
+| `p_whiff_media` | número 0-1 | `0.153` | En "Medium Altitude" (opcional) |
+| `p_whiff_cdmx` | número 0-1 | `0.151` | En "Extreme Altitude" (opcional) |
+| `pitcheos`, `whiff_real`, `penalizacion_cdmx` | | | Informativas; el traductor las ignora |
 
-```python
-api2.subir("bayesball_<nombre>", tabla, modelo="bayesball", version="v1")
-```
+- **Cómo se calcula:** a cada pitcheo real se le cambia **solo** `altitude_category` (la física medida queda igual), se recalcula la resolvabilidad y se predice. Se promedia por pitcher × temporada × tipo.
+- **Escala:** P(whiff) **por pitcheo** (swing y fallo entre todos los pitcheos), regresada a la tasa real de whiff porque el modelo se entrena con `class_weight='balanced'`. La web app la muestra en % junto al Whiff % (que es por swing).
+- **Dónde se ve:** en el perfil de cada pitcher, una columna "BayesBall P(whiff)" con nivel del mar → Harp Helú (el nivel del parque de casa, `home_stadium_id`).
 
-Para que la web app lo **muestre** falta acordar qué predice y la forma de su tabla: llaves (`pitcher_anon_id`, `year`, ¿`tipo`?), columnas y en qué pantalla va. Con eso se agrega aquí y se conecta en el traductor (`backend/app/store.py` y `services.py`).
+## Tabla `bayesball_validacion` (BayesBall, página de Metodología)
+
+Mismas columnas que `validacion` (`nombre`, `valor`, `split`, `tipo`). La sección 7 del notebook sube el AUC, el log loss, el coeficiente de `resolv_x_extreme`, la penalización perceptual promedio y la del slider, y una `nota` con la escala.
+
+### Cómo salen del notebook
+
+Ya está hecho: la **sección 7** de `notebooks/03_model_stuff_plus.ipynb` arma las dos tablas, las sube con `ClienteAPI2` (`modelo="bayesball"`, `VERSION_BAYES`) y recarga la web app.
+
+Los nombres de las tablas y columnas que busca el traductor están en `backend/data/reference/app_config.json` (sección `api2`), por si algún día cambian.

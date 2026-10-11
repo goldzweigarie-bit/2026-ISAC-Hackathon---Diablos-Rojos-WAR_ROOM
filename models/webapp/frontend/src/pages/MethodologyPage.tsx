@@ -1,4 +1,4 @@
-import type { Methodology, Stadium } from "../api";
+import type { Methodology, Stadium, Validation } from "../api";
 import { useLang } from "../i18n";
 import { altitudeColor, fmt, useApi } from "../state";
 
@@ -39,12 +39,36 @@ function AltitudeChart({ data, stadiums }: { data: Methodology["altitude_study"]
   );
 }
 
+function ValidationTables({ v }: { v: Validation }) {
+  return (
+    <>
+      {v?.metrics && (
+        <table className="data"><tbody>
+          {v.metrics.map((m, i) => (
+            <tr key={i}>
+              <td>{m.name}{m.split ? <div className="faint tiny">{m.split}</div> : null}</td>
+              <td className="r num" style={{ whiteSpace: "nowrap" }}>{m.value}</td>
+            </tr>
+          ))}
+        </tbody></table>
+      )}
+      {v?.submodels && v.submodels.length > 0 && (
+        <table className="data" style={{ marginTop: 10 }}><tbody>
+          {v.submodels.map((m, i) => <tr key={i}><td>{m.name}</td><td className="muted">{m.target}</td><td>{m.metric}</td><td className="r num">{m.value}</td></tr>)}
+        </tbody></table>
+      )}
+      {v?.notes && <p className="muted small">{v.notes}</p>}
+    </>
+  );
+}
+
 export default function MethodologyPage() {
   const { t, d } = useLang();
   const { data } = useApi<Methodology>("/methodology");
   const { data: stadiums } = useApi<Stadium[]>("/stadiums");
   if (!data) return <main className="page"><div className="empty-state">{t("loading")}</div></main>;
   const v = data.validation;
+  const b = data.bayesball;
 
   return (
     <main className="page">
@@ -97,17 +121,15 @@ export default function MethodologyPage() {
           <h2>{t("mValidation")}</h2>
           <p className="muted">{t("mValidationPlan")}</p>
           {!v && <p className="chip gold" style={{ whiteSpace: "normal" }}>{t("mValidationPending")}</p>}
-          {v?.metrics && (
-            <table className="data"><tbody>
-              {v.metrics.map((m, i) => <tr key={i}><td>{m.name}</td><td className="muted">{m.split ?? ""}</td><td className="r num">{m.value}</td></tr>)}
-            </tbody></table>
-          )}
-          {v?.submodels && (
-            <table className="data" style={{ marginTop: 10 }}><tbody>
-              {v.submodels.map((m, i) => <tr key={i}><td>{m.name}</td><td className="muted">{m.target}</td><td>{m.metric}</td><td className="r num">{m.value}</td></tr>)}
-            </tbody></table>
-          )}
-          {v?.notes && <p className="muted small">{v.notes}</p>}
+          <ValidationTables v={v} />
+        </section>
+
+        <section className="panel">
+          <h2>{t("mBayes")}</h2>
+          <p className="muted">{t("mBayesText")}</p>
+          {!b?.available && !b?.validation && <p className="chip gold" style={{ whiteSpace: "normal" }}>{t("mBayesPending")}</p>}
+          {b?.validation && <ValidationTables v={b.validation} />}
+          {b?.name && <span className="chip" style={{ marginTop: 10 }}>model: {b.name}</span>}
         </section>
 
         <section className="panel">
