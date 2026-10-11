@@ -40,3 +40,6 @@ venv/
 # Llaves y archivos locales de los APIs y la web app
 .env
 logs/
+
+# Salidas de los notebooks (tablas sacadas de los datos de la competencia)
+resultados/

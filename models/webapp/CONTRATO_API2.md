@@ -22,7 +22,7 @@ La tabla lleva **un renglón por pitcher × temporada × tipo de pitcheo**.
 
 ### Cómo sale del notebook
 
-Ya está hecho: el **Paso 9** de `notebooks/03_model_stuff_plus.ipynb` arma esta tabla desde `por_pitcher_tipo` (paso 8a), la sube con `ClienteAPI2` y recarga la web app. Solo hay que tener todo prendido (`bash apis/iniciar_todo.sh`) y correr el notebook completo.
+Ya está hecho: el **Paso 9** de `notebooks/06_StuffPlus.ipynb` arma esta tabla desde `por_pitcher_tipo` (paso 8a), la sube con `ClienteAPI2` y recarga la web app. Solo hay que tener todo prendido (`bash apis/iniciar_todo.sh`) y correr el notebook completo.
 
 ## Tabla `validacion` (opcional: página de Metodología)
 
@@ -35,6 +35,8 @@ Ya está hecho: el **Paso 9** de `notebooks/03_model_stuff_plus.ipynb` arma esta
 | `objetivo`, `metrica` | Solo para `tipo = submodelo`, p. ej. `whiff` y `log loss` |
 
 ## BayesBall (pendiente de definir)
+
+Es `notebooks/03_model_stuff_plus.ipynb` (+ `src/models/bayesian_resolvability.py`): una regresión logística de P(whiff) con un *resolvability score* bayesiano, y la "penalización perceptual" del slider en altitud extrema.
 
 Ya se puede **subir** al API 2 igual que Stuff+:
 
