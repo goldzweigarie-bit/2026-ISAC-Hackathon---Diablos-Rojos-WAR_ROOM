@@ -18,6 +18,7 @@ Sistema de evaluación pitch-by-pitch que estima la calidad esperada de cada lan
 ```bash
 bash apis/instalar.sh        # una vez por compu (datos en ~/Desktop/hackathon, FUERA del repo)
 bash apis/iniciar_todo.sh    # prende API 1, API 2 y la web app en http://localhost:8002
+bash apis/correr_modelos.sh  # en OTRA Terminal: corre Stuff+ y BayesBall con los datos y sube sus resultados
 ```
 
 Cada modelo sube sus resultados al API 2 y la web app los toma de ahí. Detalle en [`apis/README.md`](apis/README.md). **El repo es público: datos y llaves nunca se suben.**

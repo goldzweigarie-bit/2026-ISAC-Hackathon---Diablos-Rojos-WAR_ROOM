@@ -14,6 +14,7 @@ Stuff+ / BayesBall ──→ API 2 :8001 (resultados) ──────┘
 | `notebooks/06_StuffPlus.ipynb` | El modelo Stuff+ (XGBoost, Polars). Su **Paso 9** sube los resultados al API 2 |
 | `notebooks/03_model_stuff_plus.ipynb` | El modelo bayesiano de resolvabilidad (BayesBall), con `src/models/bayesian_resolvability.py` |
 | `apis/instalar.sh` · `apis/iniciar_todo.sh` | Instalar una vez · prender todo |
+| `apis/correr_modelos.sh` | Correr los dos modelos con los datos reales y subir sus resultados, sin abrir Jupyter |
 
 ## ⚠️ El repo es público
 
@@ -56,7 +57,24 @@ Prende el API 1, el API 2 y la web app, y abre **http://localhost:8002**. **Ctrl
 
 Mientras ningún modelo haya subido resultados, la web app usa un **Stuff+ provisional** y lo dice en el encabezado.
 
-## 4. Subir un modelo
+## 4. Correr los modelos y subir sus resultados
+
+**Lo más fácil:** con todo prendido (`iniciar_todo.sh` en una Terminal), en **otra** Terminal desde la raíz del repo:
+
+```bash
+bash apis/correr_modelos.sh        # los dos: Stuff+ (06) y BayesBall (03)
+bash apis/correr_modelos.sh 03     # solo uno
+```
+
+- Instala lo que necesitan los notebooks (`apis/requirements-modelos.txt`, la primera vez tarda 1-2 minutos).
+- Corre cada notebook completo, y cada uno sube sus tablas al API 2 y recarga la web app.
+- No modifica los notebooks del repo. La copia con salidas queda en `apis/logs/`, que git ignora.
+- La primera vez, Stuff+ entrena su prueba por temporada (`modelos/season_holdout.csv`, que git ignora), así que tarda más. Las siguientes la reutiliza.
+- Si en Mac sale "xgboost no carga", falta OpenMP: `brew install libomp` y vuelve a correrlo.
+
+Los resultados quedan guardados en `~/Desktop/hackathon/resultados_api2`. Al volver a prender la app ya no hace falta correr los modelos otra vez.
+
+También se puede a mano desde Jupyter:
 
 ### Stuff+
 

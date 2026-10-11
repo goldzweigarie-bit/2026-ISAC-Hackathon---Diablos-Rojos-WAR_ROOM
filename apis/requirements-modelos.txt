@@ -1,0 +1,11 @@
+# Lo que necesitan los notebooks de los modelos (06 Stuff+ y 03 BayesBall), además de apis/api/requirements.txt.
+# Lo instala solo:  bash apis/correr_modelos.sh
+
+xgboost==3.4.1       # la misma versión con la que se entrenaron los modelos de modelos/
+scikit-learn>=1.5    # BayesBall (regresión logística) y las métricas de Stuff+
+pandas>=2.2          # solo la usa scikit-learn dentro de BayesBall (src/models/bayesian_resolvability.py)
+pyarrow>=15          # para pasar de Polars a pandas en BayesBall
+matplotlib>=3.8
+seaborn>=0.13
+nbclient>=0.10       # corre los notebooks sin abrir Jupyter
+ipykernel>=6.29
