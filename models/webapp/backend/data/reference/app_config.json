@@ -1,0 +1,62 @@
+{
+  "our_team_code": "MEX",
+  "home_stadium_id": "harp-helu",
+  "paper_url": "",
+  "sea_level_reference": {
+    "altitude_m": 0,
+    "temp_c": 25
+  },
+  "altitude_category_to_m": {
+    "_note": "Altitud representativa de cada altitude_category del dataset. Solo se usa para pitcheos sin estadio (datos anonimizados). Extreme = promedio Harp Helú/Serdán; Medium = promedio de los parques entre 1000 y 2000 m: ajústalo si saben qué parques entran en esa categoría.",
+    "No Altitude": 50,
+    "Medium Altitude": 1600,
+    "Extreme Altitude": 2212
+  },
+  "min_pitches_leaderboard": 100,
+  "min_pitches_pitch_type": 20,
+  "reliever_max_pitches_per_app": 35,
+  "bullpen": {
+    "rest_if_pitched_both_last_2_days": true,
+    "rest_if_pitches_last_day_over": 30,
+    "rest_if_pitches_last_3_days_over": 55,
+    "limited_if_pitched_yesterday": true,
+    "limited_if_pitches_last_3_days_over": 30
+  },
+  "niveles_altitud": [
+    {
+      "nivel": "Extreme Altitude",
+      "desde_m": 2000
+    },
+    {
+      "nivel": "Medium Altitude",
+      "desde_m": 1000
+    },
+    {
+      "nivel": "No Altitude",
+      "desde_m": -100
+    }
+  ],
+  "_niveles_note": "Qué nivel de Stuff+ del modelo usa cada parque, según su altitud. Para fijar uno a mano, agrega \"altitude_category\" a ese parque en stadiums.json.",
+  "api2": {
+    "_note": "Tabla de Stuff+ que el modelo sube al API 2 (ver CONTRATO_API2.md).",
+    "tabla_stuff": "stuff_plus_por_pitcher_tipo",
+    "tabla_validacion": "validacion",
+    "columnas": {
+      "pitcher": "pitcher_anon_id",
+      "temporada": "year",
+      "tipo": "tipo",
+      "stuff_por_nivel": {
+        "No Altitude": "stuff_plus_nivel_mar",
+        "Medium Altitude": "stuff_plus_media",
+        "Extreme Altitude": "stuff_plus_cdmx"
+      },
+      "p_whiff_por_nivel": {
+        "No Altitude": "p_whiff_nivel_mar",
+        "Medium Altitude": "p_whiff_media",
+        "Extreme Altitude": "p_whiff_cdmx"
+      }
+    },
+    "tabla_bayesball": "bayesball_por_pitcher_tipo",
+    "tabla_bayesball_validacion": "bayesball_validacion"
+  }
+}
